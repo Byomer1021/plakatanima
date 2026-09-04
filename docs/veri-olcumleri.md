@@ -139,3 +139,66 @@ tek satırlı 520×110 formatını modelliyor ve bütün tanıma tasarımı buna
 Silinmedi, `iki_satirli` durumuyla işaretlendi: veri elde kalıyor, kapsam dışı
 olduğu kayıtlı, ileride ayrı bir kafa eğitilmek istenirse örnekler hazır.
 **Kapsamı daraltmak ile veriyi atmak aynı şey değil.**
+
+
+---
+
+## 8. Sentetik üreteç kalibrasyonu
+
+Üretecin bozulma ayarları tahmin edilmedi; 690 gerçek plakaya bakılarak
+ayarlandı. Projenin sırası bunun için böyle kurulmuştu.
+
+### Perspektif: planın önerisi bu veriye uymuyor
+
+Etiketli dört köşeden ölçülen:
+
+| eksen | ortanca | %90 | en büyük | planın önerisi |
+|---|---|---|---|---|
+| yatay (yaw) | 0.023 | 0.057 (~7°) | 0.125 (~14°) | **±35°** |
+| düşey (pitch) | 0.074 | 0.181 (~20°) | 0.586 (~49°) | ±25° |
+| düzlem içi dönme | 1.3° | 4.5° | 14.7° | ±10° |
+
+Yatay eğim planın önerdiğinin **beşte biri**. Sebebi senaryoda: dashcam öndeki
+aracın arkasında ve yukarısında; sağa-sola açı küçük, yukarıdan aşağı açı
+büyük. Üreteç ölçülen aralıklara ayarlandı (yaw ±15, pitch ±30, dönme ±10).
+
+**Bu sayılar senaryoya özgü.** Yol kenarı sabit kamerası büyük yatay açı görür;
+oradaki bir sistem için yeniden ölçülmeli.
+
+### Ölçek: aralık değil dağılım
+
+İlk sürüm plaka genişliğini `uniform(55, 280)` ile örnekliyordu, ortancası 167.
+Gerçeğin ortancası **105**. Sonuç: sentetik plakalar sistematik olarak fazla
+büyük çizildi, fazla keskin kaldı, ve müfredat bu etkinin altında kayboldu —
+zorluk 0'dan 1'e giderken keskinlik ortancası yalnızca 177'den 116'ya indi.
+
+Çözüm: gerçek genişlikleri **bootstrap** ile örnekle. Dağılımın şekli (sağa
+çarpık) tahmin edilmiyor, aynen taşınıyor.
+
+### Keskinlik dağılımı: üç adımda hizalandı
+
+| aşama | %5 | %10 | %25 | ortanca | %75 | %90 |
+|---|---|---|---|---|---|---|
+| **gerçek (690)** | 14 | 19 | 34 | **69** | 147 | 362 |
+| sentetik, ilk sürüm | – | 13 | 46 | 162 | 444 | 1034 |
+| + ölçek bootstrap | – | 7 | – | 55 | – | 703 |
+| + keskinlik tabanı | 17 | 21 | 35 | 105 | 352 | 863 |
+| + sıkıştırılmış rampa | 18 | 20 | 36 | **91** | 304 | 732 |
+
+Alt yarı birebir oturuyor (%5, %10, %25 neredeyse aynı). Üst yarı hâlâ
+gerçekten temiz; kalan fark ölçeğin büyük ve bulanıklığın uygulanmadığı
+örneklerden geliyor.
+
+**Burada durduk.** Dağılımı daha fazla kovalamak, aşağı akışta bir metrik
+olmadan tahmin yürütmek olurdu. Sentetik küme gerçeğin zor ucunu kapsıyor;
+kalan fark gerçek veriyle ince ayarda kapanacak ve transferin gerçekten olup
+olmadığı model eğitilince **ölçülebilir**.
+
+### Keskinlik tabanı ve kalan risk
+
+Taban, **okunabilir** gerçek plakaların %5'lik dilimi (14). Yani sentetik
+hiçbir örnek, okunabildiği bilinen en bulanık gerçek plakadan daha bozuk değil.
+
+Kalan risk: keskinlik zayıf bir vekil (bölüm 3'te ölçüldü). Parlama ya da düşük
+kontrast yüzünden eşiğin üstünde olup yine de okunamayan örnekler olabilir ve
+onların etiketi kurtarılamaz. Sayısı ölçülmedi.
