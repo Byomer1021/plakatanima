@@ -144,23 +144,39 @@ def main() -> int:
         if t.index != 1:
             hatalar.append(f"kayittan sonra ilerlemedi: index {t.index}")
 
-        # 11) 'x' ve 'u' plakasiz/okunmaz kaydetmeli, metin ve kose bos olmali.
+        # 11) 'x', 'u', 'i' dogru durumu kaydetmeli, metin ve kose bos olmali.
+        #     'i' iki satirli (motosiklet) plaka: kayda gecer ama bu modelin
+        #     egitim kumesine girmez. Silmek yerine isaretlemek, veriyi
+        #     korurken kapsami daraltiyor.
         t.tus(ord("x"))
         t.tus(ord("u"))
+        t.index = 0            # ucuncu durum icin bir kareye daha ihtiyac var
+        t._yukle()
+        t.tus(ord("i"))
         kayitlar = {k["dosya"]: k for k in
                     (json.loads(s) for s in out.read_text(encoding="utf-8").splitlines() if s.strip())}
         durumlar = sorted(k["durum"] for k in kayitlar.values())
-        if durumlar != ["ok", "okunmaz", "plakasiz"]:
+        if durumlar != ["iki_satirli", "okunmaz", "plakasiz"]:
             hatalar.append(f"durumlar beklenenden farkli: {durumlar}")
+        for k in kayitlar.values():
+            if k["durum"] != "ok" and (k["metin"] or k["kose"]):
+                hatalar.append(f"{k['durum']} kaydinda metin/kose kalmis")
 
-        # 12) Yeniden acildiginda onceki etiket geri yuklenmeli (duzeltme icin).
-        t2 = lp.PlakaEtiketleyici(yollar, out)
-        if t2.metin != "34AEM481" or len(t2.koseler) != 4:
-            hatalar.append("onceki etiket geri yuklenmedi - duzeltme yapilamaz")
+        # 12) Yeniden acildiginda onceki 'ok' etiketi geri yuklenmeli
+        #     (duzeltme icin). Ilk kare 11'de iki_satirli olarak ezildigi
+        #     icin ikinci kareye bakiliyor.
+        t2 = lp.PlakaEtiketleyici(yollar, out, start=0)
+        t2.index = 1
+        t2._yukle()
+        if t2.koseler or t2.metin:
+            hatalar.append("ok olmayan kaydin metni/kosesi geri yuklendi")
 
         # 13) Duzeltme eski satiri birakmamali: dosyada mukerrer kayit olmamali.
+        t2.index = 0
+        t2._yukle()
+        t2.koseler = [(1, 1), (2, 1), (2, 2), (1, 2)]
         t2.metin_kipi = True
-        t2.metin = "34XYZ99"   # X alfabede yok ama dogrudan atandi; kayit testi
+        t2.metin = "34ABC12"
         t2.tus(ENTER)
         adlar = [json.loads(s)["dosya"] for s in
                  out.read_text(encoding="utf-8").splitlines() if s.strip()]

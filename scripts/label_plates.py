@@ -29,8 +29,27 @@ Cikti: data/labels.jsonl - satir basina bir kirpma.
     {"dosya": "maltepe_00004_2.jpg", "kose": [[x,y],...], "metin": "34AEM481",
      "keskinlik": 118.4, "durum": "ok"}
 
-`durum` alani "ok", "plakasiz" (hasatci vurdu ama plaka yok) ya da "okunmaz"
-olabilir. Son ikisi de veri: hasatcinin isabet oranini onlar veriyor.
+`durum` alani su degerleri alabilir:
+
+    ok          tek satirli plaka, kose ve metin girildi
+    plakasiz    hasatci vurdu ama kirpmada plaka yok
+    okunmaz     plaka var ama karakterler secilemiyor
+    iki_satirli motosiklet/kare plaka - KAYDEDILIR AMA BU MODELE GIRMEZ
+
+Son ucu de veri: ilk ikisi hasatcinin isabet oranini veriyor, ucuncusu ise
+kapsam disi biraktigimiz bir plaka ailesinin ne siklikta gectigini.
+
+Neden iki satirli ayri tutuluyor
+--------------------------------
+Plan yalnizca tek satirli 520x110 formatini modelliyor: sentetik uretec tek
+satir uretiyor, tanima modeli 32x128 gibi yatay bir seride CTC calistiriyor ve
+4.7:1 en-boy orani bu varsayima dayaniyor. Motosiklet plakasi iki satir
+("34 HNU" ustte, "227" altta) ve ayni tanima kafasina verilirse cop cikar -
+model iki satiri yan yana okumaya calisir.
+
+Silmek yerine isaretlemek daha dogru: veri elde kaliyor, kapsam disi oldugu
+kayitli, ve ileride iki satirli icin ayri bir kafa egitilmek istenirse ornekler
+hazir. Kapsami daraltmak ile veriyi atmak ayni sey degil.
 
 Kullanim:
     python scripts/label_plates.py
@@ -171,8 +190,8 @@ class PlakaEtiketleyici:
                       "ESC kose kipine don")
         else:
             yardim = ("sol tik: 4 koseyi sirayla (sol ust -> saat yonu)   "
-                      "z geri al   ENTER metin kipi   "
-                      "x plakasiz   u okunmaz   n/p kare   q cik")
+                      "z geri al   ENTER metin kipi   x plakasiz   "
+                      "u okunmaz   i iki satirli   n/p kare   q cik")
         cv2.putText(bar, yardim, (10, 82), cv2.FONT_HERSHEY_SIMPLEX,
                     0.45, (140, 140, 150), 1, cv2.LINE_AA)
 
@@ -231,6 +250,11 @@ class PlakaEtiketleyici:
             self._ilerle(1)
         elif char == "u":
             self.kaydet("okunmaz")
+            self._ilerle(1)
+        elif char == "i":
+            # Iki satirli (motosiklet/kare) plaka: kayda gecer, bu modelin
+            # egitim kumesine girmez.
+            self.kaydet("iki_satirli")
             self._ilerle(1)
         elif char == "n":
             self._ilerle(1)
@@ -301,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     print("    ENTER       : 4 kose tamamsa metin kipine gec")
     print("    x           : bu kirpmada plaka yok")
     print("    u           : plaka var ama okunmuyor")
+    print("    i           : iki satirli plaka (motosiklet) - kapsam disi")
     print("    n / p       : sonraki / onceki")
     print("    q           : cik")
     print("  METIN KIPI")
