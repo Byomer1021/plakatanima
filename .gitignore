@@ -35,3 +35,7 @@ CMakeFiles/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Sentetik manifest: uretecin ciktisi, ayni tohumla yeniden uretilebilir.
+# 100k satir depoda gereksiz yer kapliyor.
+data/synth.tsv

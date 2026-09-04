@@ -1,7 +1,19 @@
 """Faz 2: CTC ile plaka tanima modeli.
 
 Bulutta calisacak (Kaggle / Colab / kiralik GPU). Yerel GTX 1080 agir yuk
-altinda uc kez dustu ve 100k ornek CPU'da haftalar surerdi.
+altinda DORT kez dustu ve 100k ornek CPU'da haftalar surerdi.
+
+Cihaz varsayilani CPU - "varsa cuda" DEGIL
+------------------------------------------
+Bu betigin ilk surumu `cuda if torch.cuda.is_available() else cpu` diyordu ve
+duman testinde makineyi resetletti: CUDA error, ardindan sistem cokusu. Bu
+dorduncu dususSu ve onceki projede dedektor tam bu yuzden CPU varsayilanina
+cekilmisti - sonra ayni tuzaga yeniden dusuldu.
+
+"Varsa kullan" saglikli bir GPU icin dogru varsayilan. Bu makinede degil:
+burada GPU'nun varligi kullanilabilirligi anlamina gelmiyor. Varsayilan CPU,
+GPU acikca istenirse `--cihaz cuda`. Bulut kutusunda `--cihaz cuda` verilecek
+ve orada dogru davranis bu.
 
 ALTIN KURAL: dogrulama YALNIZCA gercek veride
 ----------------------------------------------
@@ -227,7 +239,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--epoch", type=int, default=20)
     parser.add_argument("--yigin", type=int, default=128)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--cihaz", default=None)
+    parser.add_argument(
+        "--cihaz", default="cpu",
+        help="Varsayilan cpu: bu makinedeki GPU dort kez dustu. "
+             "Bulut kutusunda --cihaz cuda verin.")
     parser.add_argument("--out", type=Path, default=ROOT / "runs" / "taniyici")
     parser.add_argument("--limit", type=int, default=None,
                         help="Sentetikten yalnizca ilk N ornek (deneme icin)")
@@ -236,8 +251,13 @@ def main(argv: list[str] | None = None) -> int:
     import torch
     import torch.nn as nn
 
-    cihaz = args.cihaz or ("cuda" if torch.cuda.is_available() else "cpu")
+    cihaz = args.cihaz
+    if cihaz.startswith("cuda") and not torch.cuda.is_available():
+        raise SystemExit("--cihaz cuda verildi ama CUDA yok.")
     print(f"cihaz: {cihaz}")
+    if cihaz == "cpu":
+        print("(GPU icin acikca --cihaz cuda verin; bu makinede otomatik "
+              "secilmiyor, sebebi modul aciklamasinda)")
 
     sentetik = sentetik_liste(args.synth)
     if args.limit:
