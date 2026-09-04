@@ -39,3 +39,14 @@ Thumbs.db
 # Sentetik manifest: uretecin ciktisi, ayni tohumla yeniden uretilebilir.
 # 100k satir depoda gereksiz yer kapliyor.
 data/synth.tsv
+
+# GERCEK PLAKALAR DEPOYA GIRMEZ.
+# Plaka Turkiye 6698 sayili kanun kapsaminda kisisel veri. Kirpmanin kendisi
+# "baglamsiz" sayilabilirdi ama dosya adi kaynak videoyu ve saniyeyi kodluyor,
+# ve labels.jsonl metni ona bagliyor: plaka + yer + zaman. Bu birlesim
+# yayinlanacak bir sey degil.
+#
+# Depoda yayinlanan sey KOD ve SENTETIK boru hatti; gercek veri yerelde kalir.
+data/plates/
+data/labels.jsonl
+data/plates.jsonl
