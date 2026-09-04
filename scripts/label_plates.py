@@ -301,6 +301,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--yeni", action="store_true",
                         help="Yalnizca hic islenmemis kirpmalari gez")
+    parser.add_argument("--only", type=Path, default=None,
+                        help="Yalnizca bu dosyada listelenen kirpmalari gez "
+                             "(build_queue.py ciktisi; sira dosyadaki sira)")
     args = parser.parse_args(argv)
 
     images = sorted(args.crops.glob("*.jpg"))
@@ -313,10 +316,22 @@ def main(argv: list[str] | None = None) -> int:
         for satir in args.out.read_text(encoding="utf-8").splitlines():
             if satir.strip():
                 islenmis.add(json.loads(satir)["dosya"])
+    if args.only is not None:
+        # Sira DOSYADAKI sira: build_queue.py keskinlige gore siraladi ve o
+        # siranin korunmasi kuyrugun butun anlami. Alfabetik siralamak
+        # en keskinden baslama fikrini sessizce iptal ederdi.
+        istenen = [l.strip() for l in
+                   args.only.read_text(encoding="utf-8").splitlines()
+                   if l.strip() and not l.startswith("#")]
+        var = {p.name: p for p in images}
+        eksik = [a for a in istenen if a not in var]
+        if eksik:
+            print(f"UYARI: {len(eksik)} kirpma bulunamadi, ilki: {eksik[0]}")
+        images = [var[a] for a in istenen if a in var]
     if args.yeni:
         images = [p for p in images if p.name not in islenmis]
-        if not images:
-            raise SystemExit("Islenmemis kirpma kalmadi.")
+    if not images:
+        raise SystemExit("Islenmemis kirpma kalmadi.")
 
     print(f"{len(images)} kirpma, {len(islenmis)} tanesi zaten etiketli\n")
     print("  KOSE KIPI")
