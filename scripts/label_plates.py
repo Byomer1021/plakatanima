@@ -69,6 +69,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 PENCERE = "plaka etiketleme"
 
+#: Etiketlerin depo DISINDAKI yedegi. Depo icindeki tek kopya, depo
+#: uzerinde yapilan bir islemle birlikte gidebiliyor - gitti de.
+YEDEK_KOK = Path.home() / ".plakatanima_yedek"
+
 #: Kirpma ekranda bu genislige buyutulur. Karakterlerin okunabilmesi sart.
 GORUNTU_GENISLIGI = 1100
 
