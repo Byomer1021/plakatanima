@@ -1,0 +1,37 @@
+# Ham kareler ve kirpmalar depoya girmez: boyut, ve daha onemlisi mahremiyet.
+# Plaka bir kisiye baglandigi anda kisisel veri. Etiketler girer, gorseller girmez.
+data/frames/
+data/crops/
+data/synth/
+data/real/
+*.mp4
+*.mkv
+*.avi
+
+# Model agirliklari
+*.pt
+*.onnx
+*.engine
+*.plan
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# C++ / CMake
+build/
+CMakeCache.txt
+CMakeFiles/
+
+# Test gecici klasoru
+.test_tmp/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+# Faz 0-3 (veri, egitim, degerlendirme) icin yeterli.
+# Faz 4-5 (TensorRT, C++) bulut GPU kutusunda ayrica kurulur; JetPack/TensorRT
+# surumu oraya bagli oldugu icin buraya sabitlenmiyor.
+ultralytics>=8.3
+opencv-python>=4.9
+numpy>=1.26
+pillow>=10.0
