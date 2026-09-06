@@ -148,11 +148,22 @@ class PlakaEtiketleyici:
         self.kayitlar[self.ad] = kayit
         # Butun kayitlari yeniden yaz: duzeltme yapildiginda eski satirin
         # dosyada kalmamasi gerekiyor. Dosya kucuk, maliyeti onemsiz.
-        self.out.write_text(
-            "\n".join(json.dumps(k, ensure_ascii=False)
-                      for k in self.kayitlar.values()) + "\n",
-            encoding="utf-8",
-        )
+        icerik = "\n".join(json.dumps(k, ensure_ascii=False)
+                          for k in self.kayitlar.values()) + "\n"
+        self.out.write_text(icerik, encoding="utf-8")
+
+        # DEPO DISINA ikinci kopya. Bir kez 1875 etiketleme karari kayboldu:
+        # git filter-branch is bitince calisma agacini yeniden yazilmis HEAD'e
+        # donduruyor ve gecmisten cikarilan dosyalari DISKTEN de siliyor;
+        # ardindan gc --prune=now kurtarilacak nesneleri de yok etti.
+        #
+        # Saatlerce emek tek kopya halinde durmamali, ve depo ICINDE durmasi
+        # onu depo islemlerinin menziline sokuyor. Yedek ev dizininde.
+        try:
+            YEDEK_KOK.mkdir(parents=True, exist_ok=True)
+            (YEDEK_KOK / self.out.name).write_text(icerik, encoding="utf-8")
+        except OSError:
+            pass   # yedek alinamamasi etiketlemeyi durdurmamali
 
     # ---------- goruntu ----------
 
