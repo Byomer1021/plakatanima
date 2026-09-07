@@ -254,3 +254,59 @@ gerçek veride ölçülünce alan farkının zarar verip vermediği görülecek;
 yeniden üretmek 29 dakika. Üreteç ölçek dağılımını ve keskinlik tabanını
 çalışma anında `data/plates` içinden okuduğu için yeniden üretim otomatik
 olarak yeni dağılıma göre kalibre olur.
+
+
+---
+
+## 10. İlk eğitim koşusu: sıfır, ve sebebi ölçüm değil kusur
+
+100k sentetikle 20 epoch, Kaggle T4. Sonuç:
+
+```
+epoch  1  kayıp 6.444  tam dizi 0.000  karakter 0.144  düzenleme 6.87
+epoch 10  kayıp 0.185  tam dizi 0.000  karakter 0.207  düzenleme 6.20
+epoch 20  kayıp 0.047  tam dizi 0.000  karakter 0.218  düzenleme 6.11
+```
+
+Eğitim kaybı 6.44'ten **0.047**'ye indi — model sentetiği ezberledi. Gerçek
+veride ise 20 epoch boyunca **tek plaka bile okumadı** ve karakter doğruluğu
+hiç kıpırdamadı.
+
+Bu deseni alan farkı üretmez. Kademeli bir fark olsaydı yavaş bir tırmanış
+görülürdü; **düz çizgi**, modelin bu görüntüleri hiç tanımadığını söyler.
+
+### Kusur: sentetik ile gerçek farklı kadrajdaydı
+
+İki görüntüyü yan yana koyunca tartışmasız görüldü:
+
+- **Gerçek:** `export_plates.py` dört köşeyi kadrajın tamamına oturtuyor.
+  Plaka kareyi **kenardan kenara dolduruyor** — eğim yok, arka plan yok.
+- **Sentetik:** plaka kadrajın **içinde küçük ve eğik**, etrafında koyu arka
+  plan.
+
+Model "koyu zeminde küçük eğik plaka" öğrenip "kadrajı dolduran plaka" ile
+sınandı. Karakterler tamamen farklı ölçek ve konumda.
+
+### Kök sebep: doğru ölçüm, yanlış aşama
+
+Bölüm 8'deki perspektif ölçümü (yaw ~7°, pitch ~20°) **doğruydu** — ama plakanın
+*sahnedeki* eğimini ölçüyordu. Tanıma modeli plakayı sahnede hiç görmüyor:
+
+```
+dedektör → dört köşe → DİKLEŞTİRME → tanıma
+```
+
+O ölçüm **Faz 1'in köşe regresyonu** için geçerli, Faz 2 için alakasız. Aynı
+sayıyı yanlış aşamaya taşımak, ölçümün kendisinden daha sinsi bir hata: sayı
+doğru olduğu için sorgulanmıyor.
+
+### Düzeltme
+
+Üreteç artık plakayı kadrajı dolduracak şekilde çiziyor ve tek bozulma olarak
+**köşe işaretleme artık hatasını** modelliyor (`KOSE_HATASI = 0.05`): insanın
+ya da dedektörün köşeyi birkaç piksel kaydırmış olması. Plaka her zaman kadrajı
+dolduruyor, yalnızca kenarları biraz kayıyor.
+
+Ayrıca karakter yüksekliği çarpanı 0.62'den **0.70**'e çıkarıldı. 0.62
+uydurmaydı; gerçek plakada karakter 80 mm, plaka 110 mm — yani 0.73, kenarlığa
+pay bırakılarak 0.70.

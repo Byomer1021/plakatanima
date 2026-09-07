@@ -5,22 +5,30 @@ bunun icin boyle kuruldu: once 690 gercek plaka etiketlendi, sonra uretec
 onlara bakilarak ayarlandi. Olculenler docs/veri-olcumleri.md icinde,
 ozeti asagida.
 
-Perspektif: planin onerisi verimizle uyusmuyor
-----------------------------------------------
-Plan yatay +/-35, dusey +/-25 derece oneriyordu. Etiketli koselerden olculen:
+KADRAJI DOLDUR: tanima modeli plakayi sahnede gormuyor
+------------------------------------------------------
+Ilk surum plakayi kadrajin ICINE kucuk ve egik ciziyor, etrafinda arka plan
+birakiyordu - cunku olculen perspektif araliklari (yaw ~7, pitch ~20 derece)
+oyle soyluyordu. O olcum DOGRUYDU ama YANLIS ASAMAYA aitti.
 
-    eksen              ortanca    %90       en buyuk
-    yatay (yaw)         0.023    0.057 (~7)  0.125 (~14 derece)
-    dusey (pitch)       0.074    0.181 (~20) 0.586 (~49 derece)
-    duzlem ici donme     1.3     4.5         14.7 derece
+Tanima modeli plakayi sahnede hic gormuyor. Boru hatti soyle:
 
-Yatay egim planin onerdiginin BESTE BIRI. Sebebi senaryoda: dashcam ondeki
-aracin arkasinda ve yukarisinda duruyor, yani saga-sola aci kucuk, yukaridan
-asagi aci buyuk. Asimetri buradan geliyor ve +/-35 yatayla egitmek modele hic
-karsilasmayacagi goruntuler ogretmek olurdu.
+    dedektor -> dort kose -> DIKLESTIRME -> tanima
 
-Not: bu araliklar SENARYOYA ozgu. Yol kenari sabit kamerasi buyuk yatay aci
-gorurdu; oradaki bir sistem icin bu sayilar yeniden olculmeli.
+`export_plates.py` dort koseyi kadrajin tamamina oturtuyor, yani gercek egitim
+verisinde plaka kareyi KENARDAN KENARA dolduruyor: egim yok, arka plan yok.
+Sentetik ise plakayi kucuk ve egik uretiyordu. Model "koyu zeminde kucuk egik
+plaka" ogrenip "kadraji dolduran plaka" ile test edildi.
+
+Sonucu olculdu ve tartisilmaz: 20 epoch, egitim kaybi 6.44'ten 0.047'ye
+(sentetigi ezberledi), gercek veride tam dizi dogrulugu 20 epoch boyunca
+0.000. Kademeli bir alan farki olsaydi yavas bir tirmanis gorulurdu; duz
+cizgi "model bu goruntuleri hic tanimiyor" demekti.
+
+Olculen sahne perspektifi Faz 1'in kose regresyonu icin gecerli, Faz 2 icin
+degil. Burada modellenmesi gereken sey ARTIK HATA: insanin (ya da dedektorun)
+koseyi birkac piksel kaydirmis olmasi. Plaka her zaman kadraji dolduruyor,
+yalnizca kenarlari biraz kayiyor.
 
 Olcek: kucult, sonra buyut
 --------------------------
@@ -78,11 +86,11 @@ CIZIM_GENISLIK = int(CIZIM_YUKSEKLIK * 520 / 110)
 #: veri ayni boru hattindan gecsin.
 HEDEF_GENISLIK, HEDEF_YUKSEKLIK = 256, 64
 
-#: Olculen perspektif araliklari (bkz. modul aciklamasi). Gozlenen en buyuk
-#: degerlere kadar cikiliyor, otesine degil.
-YAW_MAX = 15.0     # derece, olculen en buyuk ~14
-PITCH_MAX = 30.0   # derece, %90 ~20, aykiri degerler daha yuksek
-ROLL_MAX = 10.0    # derece, olculen en buyuk 14.7
+#: Kose isaretleme ARTIK HATASI: her kosenin kadraj boyutuna oranla ne kadar
+#: kayabilecegi. Gercek veride en/boy orani 4.6 olculdu, gercek plaka 4.7 -
+#: yani kose isaretlemesi kabaca %2 hata tasiyor. Uretec bunun biraz uzerine
+#: cikiyor ki dedektorun kose regresyonu daha kaba oldugunda da dayansin.
+KOSE_HATASI = 0.05
 
 #: Gercek plaka genisligi dagilimi: %10=70, ortanca=105, %90=269 px.
 #: Bu ARALIK olarak degil DAGILIM olarak kullanilmali. Ilk surumde
@@ -185,7 +193,10 @@ def temiz_plaka(metin: str, font_yolu: Path, rng: random.Random) -> np.ndarray:
                   outline=yazi, width=max(2, CIZIM_YUKSEKLIK // 40))
 
     # Metin: bandin sagina, dikeyde ortalanmis.
-    boyut = int(CIZIM_YUKSEKLIK * 0.62)
+    # Carpan sartnameden: gercek plakada karakter 80 mm, plaka 110 mm = 0.73.
+    # Kenarliga pay birakip 0.70. Onceki 0.62 uydurmaydi ve gercek plakalarla
+    # yan yana konunca karakterler belirgin kucuk kaliyordu.
+    boyut = int(CIZIM_YUKSEKLIK * 0.70)
     font = ImageFont.truetype(str(font_yolu), boyut)
     alan_sol, alan_sag = bant_g + int(CIZIM_GENISLIK * 0.02), CIZIM_GENISLIK - 12
     # Karakter araligi gercek plakadaki gibi acilir; tek tek ciziliyor.
@@ -254,31 +265,34 @@ def fiziksel_yipranma(im: np.ndarray, rng: random.Random) -> np.ndarray:
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
-def perspektif(im: np.ndarray, rng: random.Random) -> np.ndarray:
-    """Katman 3: OLCULEN araliklarda homografi."""
+def kose_hatasi(im: np.ndarray, rng: random.Random) -> np.ndarray:
+    """Katman 3: kose isaretleme artik hatasi - plaka kadraji DOLDURMAYA devam eder.
+
+    Gercek veride plaka dikleştirilmis geliyor ve kadraji kenardan kenara
+    dolduruyor. Modellenecek tek bozulma, koselerin birkac piksel kaymis
+    olmasi: insan elle isaretlerken ya da dedektor kose tahmin ederken tam
+    isabet etmiyor. Kayma bazen plakanin biraz disini, bazen biraz icini
+    aliyor.
+
+    Onceki surum burada buyuk bir sahne perspektifi uyguluyor ve plakayi
+    kadrajin icinde kucultuyordu. O, tanima modelinin hic gormeyecegi bir
+    goruntu uretiyordu (bkz. modul aciklamasi).
+    """
     h, w = im.shape[:2]
-    yaw = math.radians(rng.uniform(-YAW_MAX, YAW_MAX))
-    pitch = math.radians(rng.uniform(-PITCH_MAX, PITCH_MAX))
-    roll = math.radians(rng.uniform(-ROLL_MAX, ROLL_MAX))
-
-    # Yaw ust/alt kenari, pitch sol/sag kenari kisaltir - olculen egrilik
-    # tanimlariyla ayni mantik.
-    dy = math.tan(pitch) * h * 0.5
-    dx = math.tan(yaw) * w * 0.25
-    kaynak = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
-    hedef = np.float32([
-        [0 + max(0, dx), 0 + max(0, dy)],
-        [w - max(0, -dx), 0 - min(0, dy)],
-        [w - max(0, dx), h - max(0, dy)],
-        [0 + max(0, -dx), h + min(0, dy)],
+    d = KOSE_HATASI
+    def sap():
+        return rng.uniform(-d, d)
+    # Kaynak koseler kadrajin hafif icinde/disinda; hedef tam kadraj.
+    kaynak = np.float32([
+        [w * sap(),         h * sap()],
+        [w * (1 + sap()),   h * sap()],
+        [w * (1 + sap()),   h * (1 + sap())],
+        [w * sap(),         h * (1 + sap())],
     ])
+    hedef = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
     M = cv2.getPerspectiveTransform(kaynak, hedef)
-    out = cv2.warpPerspective(im, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-
-    if abs(roll) > 1e-3:
-        R = cv2.getRotationMatrix2D((w / 2, h / 2), math.degrees(roll), 1.0)
-        out = cv2.warpAffine(out, R, (w, h), borderMode=cv2.BORDER_REPLICATE)
-    return out
+    return cv2.warpPerspective(im, M, (w, h), borderMode=cv2.BORDER_REPLICATE,
+                               flags=cv2.INTER_CUBIC)
 
 
 def goruntuleme(im: np.ndarray, rng: random.Random, zorluk: float,
@@ -363,7 +377,7 @@ def uret(rng: random.Random, fontlar: list[Path], zorluk: float,
         metin = plaka_metni(rng)
         im = temiz_plaka(metin, rng.choice(fontlar), rng)
         im = fiziksel_yipranma(im, rng)
-        im = perspektif(im, rng)
+        im = kose_hatasi(im, rng)
         im = goruntuleme(im, rng, zorluk, genislik_havuzu)
         if keskinlik_tabani <= 0:
             return im, metin
