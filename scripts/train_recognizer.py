@@ -38,9 +38,16 @@ ve en uzun plaka 9 karakter. CTC'nin tekrarlanan karakterleri ayirmak icin
 araya blank sokmasi gerektiginden zaman adimi karakter sayisinin en az iki
 katı olmali; 32 >> 18, rahat.
 
+Iki veri kaynagi: klasor ya da paket
+------------------------------------
+Yerelde JPEG klasorlerinden okunuyor. Bulutta ise `--paket` ile onceden
+paketlenmis dizilerden: 100k dosya acmak yerine tek dosya. Egitim zaten her
+goruntuyu 32x128 gri tonlamaya indirdigi icin donusum bir kez paketleme
+sirasinda yapiliyor ve her epoch'ta tekrarlanmiyor.
+
 Kullanim:
     python scripts/train_recognizer.py --epoch 20
-    python scripts/train_recognizer.py --synth data/synth --real data/plates
+    python scripts/train_recognizer.py --paket paket --cihaz cuda --epoch 20
 """
 
 from __future__ import annotations
@@ -142,6 +149,31 @@ def gercek_bol(kayitlar, val_oran=0.25, seed=0):
     return egitim, dogrulama
 
 
+def paketi_ac(kok: Path):
+    """Paketlenmis dizileri (sentetik, gercek) olarak dondurur.
+
+    Sentetik dizinin sirasi ZORLUK sirasi ve korunuyor; gercek tarafta her
+    ornegin plaka metni var, bolme ona gore yapilacak.
+    """
+    sentetik = np.load(kok / "sentetik.npz", allow_pickle=True)
+    gercek = np.load(kok / "gercek.npz", allow_pickle=True)
+    sx, sy = sentetik["x"], [str(v) for v in sentetik["y"]]
+    gx, gy = gercek["x"], [str(v) for v in gercek["y"]]
+    if sx.shape[1:] != (YUKSEKLIK, GENISLIK):
+        raise SystemExit(
+            f"Paket {sx.shape[1]}x{sx.shape[2]} boyutunda ama model "
+            f"{YUKSEKLIK}x{GENISLIK} bekliyor. Paketi yeniden uretin: "
+            f"python scripts/paketle.py --yukseklik {YUKSEKLIK} "
+            f"--genislik {GENISLIK}"
+        )
+    return (sx, sy), (gx, gy)
+
+
+def diziden(x: np.ndarray) -> np.ndarray:
+    """Paketten gelen uint8 goruntuyu modelin bekledigi bicime cevirir."""
+    return (x.astype(np.float32) / 127.5 - 1.0)[None]
+
+
 def yukle(yol: Path):
     import cv2
     im = cv2.imread(str(yol), cv2.IMREAD_GRAYSCALE)
@@ -205,7 +237,8 @@ def degerlendir(model, kayitlar, cihaz, yigin=64) -> dict:
             parca = kayitlar[i:i + yigin]
             X, hedefler = [], []
             for kayit in parca:
-                im = yukle(kayit[0])
+                im = (diziden(kayit[0]) if isinstance(kayit[0], np.ndarray)
+                      else yukle(kayit[0]))
                 if im is None:
                     continue
                 X.append(im)
@@ -244,6 +277,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Varsayilan cpu: bu makinedeki GPU dort kez dustu. "
              "Bulut kutusunda --cihaz cuda verin.")
     parser.add_argument("--out", type=Path, default=ROOT / "runs" / "taniyici")
+    parser.add_argument("--paket", type=Path, default=None,
+                        help="Paketlenmis diziler (scripts/paketle.py ciktisi); "
+                             "verilirse --synth/--real yok sayilir")
     parser.add_argument("--limit", type=int, default=None,
                         help="Sentetikten yalnizca ilk N ornek (deneme icin)")
     args = parser.parse_args(argv)
@@ -259,13 +295,19 @@ def main(argv: list[str] | None = None) -> int:
         print("(GPU icin acikca --cihaz cuda verin; bu makinede otomatik "
               "secilmiyor, sebebi modul aciklamasinda)")
 
-    sentetik = sentetik_liste(args.synth)
+    if args.paket:
+        (sx, sy), (gx, gy) = paketi_ac(args.paket)
+        sentetik = list(zip(sx, sy))
+        gercek = [(gx[i], gy[i], gy[i]) for i in range(len(gy))]
+        print(f"paket: {args.paket}")
+    else:
+        sentetik = sentetik_liste(args.synth)
+        gercek = gercek_liste(args.real)
     if args.limit:
         sentetik = sentetik[:args.limit]
     if not sentetik:
-        raise SystemExit(f"Sentetik ornek yok: {args.synth}")
+        raise SystemExit("Sentetik ornek yok.")
 
-    gercek = gercek_liste(args.real)
     g_egitim, g_dogrulama = gercek_bol(gercek)
     print(f"{len(sentetik)} sentetik (zorluk sirali)")
     print(f"{len(gercek)} gercek kirpma, "
@@ -298,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
             parca = sentetik[i:i + args.yigin]
             X, hedef, uzunluk = [], [], []
             for yol, metin in parca:
-                im = yukle(yol)
+                im = (diziden(yol) if isinstance(yol, np.ndarray) else yukle(yol))
                 if im is None:
                     continue
                 kod = kodla(metin)

@@ -50,3 +50,7 @@ data/synth.tsv
 data/plates/
 data/labels.jsonl
 data/plates.jsonl
+
+# Bulut paketi: turetilmis, ve gercek plaka goruntulerini dizi olarak tasiyor.
+# Depoya girmez; Kaggle veri seti olarak private yuklenir.
+paket/
