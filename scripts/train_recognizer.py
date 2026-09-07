@@ -366,7 +366,10 @@ def main(argv: list[str] | None = None) -> int:
             nn.utils.clip_grad_norm_(model.parameters(), 5.0)
             opt.step()
             plan.step()
-            toplam_kayip += float(kayip)
+            # detach: gradyan tasiyan tensoru dogrudan float()'a
+            # cevirmek torch uyarisi uretiyor ve grafigi gereksiz
+            # yere canli tutuyor. Burada sadece sayi lazim.
+            toplam_kayip += kayip.detach().item()
             adim += 1
 
         olcum = degerlendir(model, g_dogrulama, cihaz)
