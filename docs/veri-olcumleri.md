@@ -29,18 +29,34 @@ olduğu için daha çok araç 240 px eşiğini geçiyor.
 
 ---
 
-## 2. Etiketleme: isabet kaynağa göre değişiyor
+## 2. Etiketleme: isabet kaynağa göre ve kuyruk sırasına göre değişiyor
 
-1875 kırpma etiketlendi.
+**Nihai durum: 2119 kırpma etiketlendi, 811 okunabilir, 272 farklı plaka.**
 
-| kaynak | etiketli | okunabilir | isabet |
-|---|---|---|---|
-| maltepe | 900 | 350 | 39% |
-| yağmur | 395 | 123 | 31% |
-| gece | 580 | 217 | 37% |
+```
+ok         811  (%38)
+plakasiz   706  (%33)
+okunmaz    602  (%28)
+```
 
-Yağmur ilk 139 kırpmada **%12** veriyordu; kuyruk keskinliğe göre sıralanınca
-%31'e çıktı. Sıralama, aynı emekle iki buçuk kat plaka demek.
+İlk turda kaynağa göre ayrıştırılmıştı ve isabet 39/31/37 çıkmıştı. Yağmur ilk
+139 kırpmada **%12** veriyordu; kuyruk keskinliğe göre sıralanınca %31'e çıktı.
+Sıralama, aynı emekle iki buçuk kat plaka demek.
+
+### Etiketler bir kez kaybedildi
+
+İlk turun 1875 etiketi `git filter-branch` sırasında silindi: komut iş bitince
+çalışma ağacını yeniden yazılmış HEAD'e döndürüyor ve geçmişten çıkarılan
+dosyaları diskten de siliyor, ardından `gc --prune=now` kurtarılabilir
+nesneleri yok etti. Kaynak kırpmalar (3011) durduğu için yeniden etiketlendi.
+
+Sonuç öncekinden iyi: **272 plaka**, kaybedilen 240'ın üzerinde. En/boy oranı
+ortancası da 4.2'den **4.6**'ya çıktı (gerçek plaka 4.7:1) — ikinci turda köşe
+işaretlemesi daha isabetli yapıldı.
+
+Alınan önlem: etiketleyici artık her kayıtta depo **dışına** ikinci bir kopya
+yazıyor. Saatlerce emek tek kopya halinde, üstelik depo işlemlerinin
+menzilinde durmamalı.
 
 ---
 
@@ -87,8 +103,14 @@ ilk 586 okunabilir kırpma  ->  223 farklı plaka   (2.6 kırpma/plaka)
 sonraki 104 kırpma         ->   17 farklı plaka   (6.1 kırpma/plaka)
 ```
 
-Yeni bir plakanın maliyeti iki katına çıktı. Toplam **690 okunabilir kırpma,
-240 farklı plaka**.
+Yeni bir plakanın maliyeti iki katına çıktı. İkinci turda kuyruk baştan
+keskinliğe göre sıralı olduğu için verim daha yüksek başladı, ama doygunluk
+aynı yere vardı: **811 okunabilir kırpma, 272 farklı plaka** (2.98
+kırpma/plaka).
+
+Kuyruğun son 891 kırpması (keskinlik 35 altı) toplam 8 okunabilir plaka
+veriyordu; oraya hiç girilmedi. Bu, ölçülen bant tablosunun doğrudan
+kullanıldığı bir karar.
 
 Ölçümün gerçek paydası kırpma sayısı değil plaka sayısı: aynı aracı 30 saniye
 takip edince aynı plaka onlarca kırpmada geçiyor (en çok tekrarlanan 82 kez).
@@ -108,11 +130,10 @@ fazla görünümü** gerekiyor.
 
 | plaka başına kırpma | plaka sayısı |
 |---|---|
-| 1 | 171 (%71) |
-| 2 | 31 |
-| 3+ | **38** |
+| 1 | 194 (%71) |
+| 3+ | **48** |
 
-Yani zamansal oylama kazancı yalnızca **38 plaka** üzerinde ölçülebilir. Bu,
+Yani zamansal oylama kazancı yalnızca **48 plaka** üzerinde ölçülebilir. Bu,
 projenin manşet iddiasının dayanacağı taban ve şimdiden yazılıyor — sonradan
 "neden bu kadar az" diye sorulmasın.
 
@@ -120,8 +141,8 @@ projenin manşet iddiasının dayanacağı taban ve şimdiden yazılıyor — so
 
 ## 6. Kapsama ve çarpıklık
 
-- **Harf:** 23 harfin 23'ü geçiyor. Yalnızca `I` iki kez.
-- **İl kodu:** 23 farklı, ama **240 plakanın 201'i "34"** (%84).
+- **Harf:** 23 harfin 23'ü geçiyor.
+- **İl kodu:** 25 farklı, ama **272 plakanın 222'si "34"** (%82).
 
 İkincisinin doğrudan bir sonucu var: **sentetik üreteç il kodunu 01-81 arasında
 düzgün dağıtmak zorunda.** Gerçek veri İstanbul ağırlıklı olduğu için model
@@ -202,3 +223,34 @@ hiçbir örnek, okunabildiği bilinen en bulanık gerçek plakadan daha bozuk de
 Kalan risk: keskinlik zayıf bir vekil (bölüm 3'te ölçüldü). Parlama ya da düşük
 kontrast yüzünden eşiğin üstünde olup yine de okunamayan örnekler olabilir ve
 onların etiketi kurtarılamaz. Sayısı ölçülmedi.
+
+
+---
+
+## 9. Nihai gerçek veri seti ve sentetikle farkı
+
+811 dikleştirilmiş plaka, 272 farklı. Ölçülenler:
+
+| ölçü | %10 | ortanca | %90 |
+|---|---|---|---|
+| kaynak genişlik | 69 px | 105 px | 258 px |
+| kaynak yükseklik | 16 px | 24 px | 54 px |
+| en/boy oranı | 3.9 | **4.6** | 5.2 |
+| perspektif eğriliği | 0.0 | 0.0 | 0.05 |
+
+Keskinlik dağılımının sentetikle karşılaştırması:
+
+| | %5 | %10 | %25 | ortanca | %75 | %90 |
+|---|---|---|---|---|---|---|
+| gerçek (811) | 13 | 17 | 29 | **59** | 132 | 330 |
+| sentetik (100k) | 17 | 20 | 32 | **88** | 300 | 785 |
+
+Alt çeyrek oturuyor; üst yarı sentetikte hâlâ daha temiz. Sentetiğin **%0.0**'ı
+gerçeğin %5 eşiğinin altında — keskinlik tabanı görevini yapıyor.
+
+**Sentetik küme yeniden üretilmedi.** Gerekçe bölüm 8'dekiyle aynı: aşağı
+akışta bir metrik olmadan dağılım kovalamak tahmin yürütmektir. Model eğitilip
+gerçek veride ölçülünce alan farkının zarar verip vermediği görülecek; verirse
+yeniden üretmek 29 dakika. Üreteç ölçek dağılımını ve keskinlik tabanını
+çalışma anında `data/plates` içinden okuduğu için yeniden üretim otomatik
+olarak yeni dağılıma göre kalibre olur.
