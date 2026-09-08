@@ -54,3 +54,6 @@ data/plates.jsonl
 # Bulut paketi: turetilmis, ve gercek plaka goruntulerini dizi olarak tasiyor.
 # Depoya girmez; Kaggle veri seti olarak private yuklenir.
 paket/
+
+# Teshis goruntuleri: bazilari gercek plaka iceriyor, depo herkese acik.
+data/_*.jpg

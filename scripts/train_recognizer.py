@@ -328,7 +328,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     gecmis = []
-    en_iyi = -1.0
+    # Secim olcutu DUZENLEME MESAFESI, tam dizi degil. Dogrulama ~200 kirpma;
+    # tam dizi 0.012 demek 2-3 kirpma demek, iki epoch arasindaki fark tek bir
+    # kirpmaya dusuyor. O cozunurlukte secim yapmak gurultuye gore secmektir.
+    # Duzenleme mesafesi her kirpmadan sinyal aliyor, bu yuzden kararli.
+    en_iyi = float("inf")
 
     for epoch in range(1, args.epoch + 1):
         model.train()
@@ -381,15 +385,18 @@ def main(argv: list[str] | None = None) -> int:
               f"duzenleme {olcum['duzenleme']:>5.2f}  "
               f"{(time.perf_counter()-basladi)/60:>5.1f} dk", flush=True)
 
-        if olcum["tam_dizi"] > en_iyi:
-            en_iyi = olcum["tam_dizi"]
-            torch.save({"model": model.state_dict(), "alfabe": ALFABE,
-                        "girdi": [YUKSEKLIK, GENISLIK], "epoch": epoch,
-                        "tam_dizi": en_iyi}, args.out / "best.pt")
+        durum = {"model": model.state_dict(), "alfabe": ALFABE,
+                 "girdi": [YUKSEKLIK, GENISLIK], "epoch": epoch,
+                 "tam_dizi": olcum["tam_dizi"], "duzenleme": olcum["duzenleme"]}
+        # son.pt her epoch yaziliyor: kosu koparsa elde bir sey kalsin.
+        torch.save(durum, args.out / "son.pt")
+        if olcum["duzenleme"] < en_iyi:
+            en_iyi = olcum["duzenleme"]
+            torch.save(durum, args.out / "best.pt")
 
     (args.out / "gecmis.json").write_text(
         json.dumps(gecmis, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nen iyi tam dizi dogrulugu: {en_iyi:.3f}")
+    print(f"\nen iyi duzenleme mesafesi: {en_iyi:.2f}")
     print(f"agirlik -> {args.out / 'best.pt'}")
     print(f"\nNot: dogrulama {len(g_dogrulama)} kirpma / "
           f"{len({k[2] for k in g_dogrulama})} plaka. Gercek payda plaka")

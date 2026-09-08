@@ -310,3 +310,104 @@ dolduruyor, yalnızca kenarları biraz kayıyor.
 Ayrıca karakter yüksekliği çarpanı 0.62'den **0.70**'e çıkarıldı. 0.62
 uydurmaydı; gerçek plakada karakter 80 mm, plaka 110 mm — yani 0.73, kenarlığa
 pay bırakılarak 0.70.
+
+---
+
+## 11. İkinci koşu: model öğrendi, ama karakter *düşürüyordu*
+
+Bölüm 10'un düzeltmesiyle yeniden üretilen 100k, aynı ayarla yeniden koşuldu.
+
+```
+epoch  1  kayıp 5.886  tam dizi 0.000  karakter 0.107  düzenleme 7.24
+epoch  3  kayıp 0.375  tam dizi 0.000  karakter 0.418  düzenleme 4.55
+epoch  6  kayıp 0.098  tam dizi 0.012  karakter 0.356  düzenleme 5.03
+epoch 12  kayıp 0.043  tam dizi 0.008  karakter 0.406  düzenleme 4.65
+epoch 20  kayıp 0.004  tam dizi 0.008  karakter 0.400  düzenleme 4.69
+```
+
+Bölüm 10'daki düz çizgi gitti: karakter doğruluğu 0.107'den 0.418'e çıktı.
+Kadraj kusuru gerçekten kusurdu ve düzeltilmesi işe yaradı.
+
+**Eğrinin şekli önemli ve ilk bakışta yanlış okundu.** Epoch 3-6 arası düşüş
+(0.418 → 0.356) aşırı-öğrenme sanıldı. Yirmi epoch'un tamamı görülünce desen
+başka: değerler epoch 3'ten sonra **0.356-0.418 bandında salınıyor**, eğitim
+kaybı 0.375'ten 0.004'e (yüz kat) inerken. Bu düşüş değil **doygunluk** —
+model sentetiğin gerçek hakkında öğretebileceğini üç epoch'ta alıyor, kalan
+on yedi epoch hiçbir şey eklemiyor. Kısa pencereden bakıp trend çıkarmak,
+bölüm 3'teki kesilmiş aralık hatasının aynısı.
+
+### `tam dizi` bu ölçekte model seçmek için kullanılamaz
+
+Doğrulama 245 kırpma. `tam dizi 0.012` demek **3 kırpma** demek; iki epoch
+arasındaki 0.008 → 0.012 farkı tek bir kırpma. `best.pt` bu sayının artışına
+bakarak seçiliyordu, yani gürültüye göre seçiyordu. Ölçüt **düzenleme
+mesafesi** yapıldı: her kırpmadan sinyal alıyor. Ayrıca her epoch `son.pt`
+yazılıyor.
+
+### Arıza: uzunluk çökmesi
+
+Ağırlık yerelde açılıp doğrulama kümesi tek tek çözümlendi:
+
+```
+ortalama hedef  7.82 karakter
+ortalama tahmin 4.76 karakter
+245 kırpmanın 244'ünde tahmin hedeften KISA
+uzunluğu tutturduğu 18 kırpmada karakter doğruluğu 0.735  (genel 0.372)
+```
+
+Model karakterleri okuyabiliyor; çıkaramıyor. Uzunluğu tutturduğu yerde
+doğruluk iki katına çıkıyor. Üç aday elendi:
+
+| aday | ölçüm | sonuç |
+|---|---|---|
+| Çözümleyici/mimari kısa basıyor | sentetiğin *zor* ucunda uzunluk farkı **−0.10**, tam dizi 0.827 | elendi |
+| Gerçek kırpmalar daha bulanık | gerçekte uzunluk hatası keskinlikle **değişmiyor**: en bulanık üçte bir −3.41, en keskin üçte bir −3.01 | elendi |
+| Ölçek farkı | aşağıda | **sebep** |
+
+İkinci satır özellikle önemli: en keskin üçte birin keskinliği (1406) sentetiğin
+ortancasından (875) yüksek, yani sentetikten *daha temiz* gerçek kırpmalar bile
+üç karakter düşürüyor. Bulanıklık hipotezi bu tek ölçümle düştü.
+
+### Kök sebep: metin kadrajı doldurmuyordu
+
+811 gerçek kırpma ile sentetik yan yana ölçüldü (ikisi de modelin gördüğü
+32×128 halde):
+
+| | dikey doluluk | yatay doluluk | karakter adımı |
+|---|---|---|---|
+| sentetik (8 karakterli) | 0.781 | 0.867 | 12.25 px |
+| **gerçek** (8 karakterli) | **0.969** | **1.000** | **14.12 px** |
+
+Üreteç fiziksel olarak doğru plakayı çiziyordu: kenarlık, mavi TR bandı, kenar
+payı. Ama model plakayı görmüyor — dört köşeden **dikleştirilmiş kırpmayı**
+görüyor ve o kırpmada metin kadraja yapışık. Model "karakter şu boyuttadır"
+diye öğrenip %15 daha büyüğüyle karşılaştı ve sembol düşürdü.
+
+**Bu, aynı hatanın üçüncüsü.** Bölüm 8'de ölçek dağılımı doğru ölçülüp yanlış
+örneklenmişti; bölüm 10'da perspektif doğru ölçülüp yanlış aşamaya taşınmıştı;
+burada plaka geometrisi doğru çizilip yanlış kadrajda sunuldu. Üçünün de ortak
+yanı, ölçümün kendisinin kusursuz olması. Yanlış olan, ölçümün **nereye ait
+olduğu**.
+
+### Düzeltme ve doğrulaması
+
+Üretece `metne_kirp()` katmanı eklendi: kadraj metnin sınırlarına daraltılıyor,
+daralma oranı 811 gerçek kırpmadan **bootstrap** ediliyor (genişlik ve
+keskinlikte olduğu gibi; dağılımın şekli tahmin edilmiyor taşınıyor).
+
+Ölçümün 1.00'de yığılması sansür belirtisi: kadraj dışına taşan metin de 1.00
+okunur. Bu yüzden az miktarda taşma da üretiliyor — ölçüm bunu gösteremez,
+ama yığılmanın sebebi budur ve gerçek kırpmalarda kesilmiş karakterler gözle
+görülüyor.
+
+600 örneklik denemede:
+
+| | dikey | yatay | karakter adımı |
+|---|---|---|---|
+| eski sentetik | 0.781 | 0.823 | 12.71 px |
+| **yeni sentetik** | 1.000 | 0.965 | 15.24 px |
+| gerçek | 1.000 | 1.000 | 14.08 px |
+
+Karakter adımı artık %10 eksik yerine %8 fazla. Kalan fark kovalanmadı: aşağı
+akışta bir metrik olmadan dağılım kovalamak tahmin yürütmektir ve metrik artık
+mevcut — bir sonraki koşu.

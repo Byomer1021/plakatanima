@@ -104,6 +104,25 @@ KOSE_HATASI = 0.05
 #: (saga carpik) boylece tahmin edilmiyor, aynen tasiniyor.
 OLCEK_YEDEK = (55, 280)   # plates.jsonl yoksa geri donus
 
+#: Metnin kadraji ne kadar doldurdugu: (dikey, yatay). Bu, uretecin
+#: kalibrasyonundaki UCUNCU asama hatasiydi ve en pahalisi oldu.
+#:
+#: Uretec fiziksel olarak dogru plakayi ciziyor: kenarlik, mavi TR bandi,
+#: kenar payi. Ama model plakayi gormuyor - dort koseden DIKLESTIRILMIS
+#: kirpmayi goruyor, ve o kirpma metne yapisik cikiyor. Olculdu (811 gercek
+#: kirpma): dikey doluluk ortancasi 1.00, %61'i 0.95 uzerinde; sentetikte
+#: ayni sayi 0.78. Karakter adimi gercekte 14.1 px, sentetikte 12.3 px.
+#:
+#: Sonucu: model "karakter su boyuttadir" diye ogrendi, gercekte %15 daha
+#: buyugunu gordu ve sembol DUSURDU. Gercek dogrulamada plaka basina 7.82
+#: karakter yerine 4.76 karakter basiyordu; sentetikte ayni model uzunlugu
+#: tam tutturuyordu (fark -0.10). Yani ariza taniyicida degil, buradaydi.
+#:
+#: 1.00'de yigilma sansur belirtisi: kadraj disina tasan metin de 1.00
+#: olculur. Bu yuzden az miktarda TASMA da uretiliyor - olcum bunu
+#: gosteremez, ama yigilmanin sebebi budur.
+DOLULUK_YEDEK = [(0.97, 1.00)]   # data/plates yoksa geri donus
+
 FONT_ADAYLARI = ["arialnb.ttf", "arialn.ttf", "bahnschrift.ttf"]
 
 #: Mufredat rampasinin egimi. 1.0 dogrusal; buyudukce zorluk erken
@@ -134,6 +153,42 @@ def gercek_keskinlik_tabani(dilim: float = 0.05) -> float:
         return 0.0
     v.sort()
     return v[max(0, int(dilim * len(v)) - 1)]
+
+
+def _doluluk_olc(gri: np.ndarray) -> tuple[float, float] | None:
+    """Bir kirpmada metnin kadraji ne kadar doldurdugunu olcer."""
+    e = cv2.threshold(gri, 0, 255,
+                      cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1] > 0
+    h, w = e.shape
+    ic = e[:, int(w * 0.12):]          # sol %12: TR bandi ve kenarlik
+    if ic.size == 0:
+        return None
+    satir, sutun = ic.mean(axis=1), ic.mean(axis=0)
+    var_s = satir > max(0.08, satir.max() * 0.35)
+    var_c = sutun > max(0.08, sutun.max() * 0.30)
+    if not var_s.any() or not var_c.any():
+        return None
+    yuk = h - int(np.argmax(var_s[::-1])) - int(np.argmax(var_s))
+    gen = ic.shape[1] - int(np.argmax(var_c[::-1])) - int(np.argmax(var_c))
+    return yuk / h, gen / ic.shape[1]
+
+
+def gercek_doluluk() -> list[tuple[float, float]]:
+    """Gercek kirpmalarin doluluk dagilimi (bootstrap kaynagi)."""
+    klasor = ROOT / "data" / "plates"
+    if not klasor.is_dir():
+        print("UYARI: data/plates yok, doluluk dagilimi OLCULMEDI, yedek "
+              "deger kullaniliyor. Once: python scripts/export_plates.py")
+        return []
+    cikti = []
+    for yol in sorted(klasor.glob("*.jpg")):
+        im = cv2.imread(str(yol), cv2.IMREAD_GRAYSCALE)
+        if im is None:
+            continue
+        d = _doluluk_olc(im)
+        if d:
+            cikti.append(d)
+    return cikti
 
 
 def gercek_genislikler() -> list[float]:
@@ -172,8 +227,11 @@ def plaka_metni(rng: random.Random) -> str:
     return f"{il:02d}{harf}{rakam}"
 
 
-def temiz_plaka(metin: str, font_yolu: Path, rng: random.Random) -> np.ndarray:
-    """Katman 1: dogru oranli, TR bantli, temiz plaka."""
+def temiz_plaka(metin: str, font_yolu: Path, rng: random.Random):
+    """Katman 1: dogru oranli, TR bantli, temiz plaka.
+
+    (goruntu, metin_kutusu) dondurur; kutuyu metne_kirp kullaniyor.
+    """
     zemin, yazi, _ = _agirlikli_secim(RENKLER, rng)
     im = Image.new("RGB", (CIZIM_GENISLIK, CIZIM_YUKSEKLIK), zemin)
     ciz = ImageDraw.Draw(im)
@@ -213,11 +271,57 @@ def temiz_plaka(metin: str, font_yolu: Path, rng: random.Random) -> np.ndarray:
 
     x = alan_sol + (alan_sag - alan_sol - toplam) / 2
     y = CIZIM_YUKSEKLIK / 2
+    kutu = None
     for c, g in zip(metin, genislikler):
+        b = ciz.textbbox((x, y), c, font=font, anchor="lm")
+        kutu = b if kutu is None else (min(kutu[0], b[0]), min(kutu[1], b[1]),
+                                       max(kutu[2], b[2]), max(kutu[3], b[3]))
         ciz.text((x, y), c, font=font, fill=yazi, anchor="lm")
         x += g + aralik
 
-    return cv2.cvtColor(np.array(im), cv2.COLOR_RGB2BGR)
+    return cv2.cvtColor(np.array(im), cv2.COLOR_RGB2BGR), kutu
+
+
+def metne_kirp(im: np.ndarray, kutu, rng: random.Random,
+               doluluk_havuzu: list[tuple[float, float]] | None) -> np.ndarray:
+    """Katman 1b: kadraji gercek kirpmalarin doluluguna gore daraltir.
+
+    Gercek veri diklestirilmis kirpma; kenarlik ve TR bandi cogunlukla
+    kadrajin disinda kaliyor. Buradaki kirpma o kadraji taklit ediyor.
+    Doluluk sabit bir sayi degil OLCULEN DAGILIMDAN cekiliyor - genislik
+    ve keskinlikte oldugu gibi, dagilimin sekli tahmin edilmiyor tasiniyor.
+    """
+    if kutu is None:
+        return im
+    h, w = im.shape[:2]
+    x0, y0, x1, y1 = kutu
+    mh, mw = max(1.0, y1 - y0), max(1.0, x1 - x0)
+
+    if doluluk_havuzu:
+        d_dikey, d_yatay = doluluk_havuzu[rng.randrange(len(doluluk_havuzu))]
+    else:
+        d_dikey, d_yatay = DOLULUK_YEDEK[0]
+
+    # Olcum 1.00'de sansurlu: kadraji tasan metin de 1.00 okunur. Yigilmanin
+    # payi kadar tasma geri veriliyor, yoksa uretecin ust ucu gercekten
+    # sistematik olarak genis kalir.
+    if d_dikey >= 0.995:
+        d_dikey = rng.uniform(0.98, 1.06)
+    if d_yatay >= 0.995:
+        d_yatay = rng.uniform(0.99, 1.04)
+
+    hedef_h, hedef_w = mh / max(0.3, d_dikey), mw / max(0.3, d_yatay)
+    cy, cx = (y0 + y1) / 2, (x0 + x1) / 2
+    ky0, ky1 = cy - hedef_h / 2, cy + hedef_h / 2
+    kx0, kx1 = cx - hedef_w / 2, cx + hedef_w / 2
+
+    # Tuval disina tasan kisim plaka disi (arac govdesi) olurdu; onu
+    # modellemek ayri bir is. Kirpma tuvale sikistiriliyor.
+    ky0, ky1 = max(0, int(round(ky0))), min(h, int(round(ky1)))
+    kx0, kx1 = max(0, int(round(kx0))), min(w, int(round(kx1)))
+    if ky1 - ky0 < 8 or kx1 - kx0 < 24:
+        return im
+    return im[ky0:ky1, kx0:kx1]
 
 
 def _agirlikli_secim(secenekler, rng: random.Random):
@@ -361,7 +465,9 @@ def goruntuleme(im: np.ndarray, rng: random.Random, zorluk: float,
 
 def uret(rng: random.Random, fontlar: list[Path], zorluk: float,
          genislik_havuzu: list[float] | None = None,
-         keskinlik_tabani: float = 0.0) -> tuple[np.ndarray, str]:
+         keskinlik_tabani: float = 0.0,
+         doluluk_havuzu: list[tuple[float, float]] | None = None
+         ) -> tuple[np.ndarray, str]:
     """Bir sentetik plaka uretir; taban altinda kalirsa yeniden dener.
 
     Taban neden var: bozulma katmanlari birlesince bazen GERCEK VERIDE HIC
@@ -375,7 +481,8 @@ def uret(rng: random.Random, fontlar: list[Path], zorluk: float,
     """
     for _ in range(6):
         metin = plaka_metni(rng)
-        im = temiz_plaka(metin, rng.choice(fontlar), rng)
+        im, kutu = temiz_plaka(metin, rng.choice(fontlar), rng)
+        im = metne_kirp(im, kutu, rng, doluluk_havuzu)
         im = fiziksel_yipranma(im, rng)
         im = kose_hatasi(im, rng)
         im = goruntuleme(im, rng, zorluk, genislik_havuzu)
@@ -405,17 +512,23 @@ def main(argv: list[str] | None = None) -> int:
     rng = random.Random(args.seed)
     fontlar = fontlari_bul()
     havuz = gercek_genislikler()
+    doluluk = gercek_doluluk()
     print(f"{len(fontlar)} font: " + ", ".join(f.name for f in fontlar))
     taban = gercek_keskinlik_tabani()
     if havuz:
         print(f"olcek dagilimi {len(havuz)} gercek plakadan bootstrap ediliyor")
     if taban:
         print(f"keskinlik tabani {taban:.0f} (gercek verinin %5'lik dilimi)")
+    if doluluk:
+        import statistics as ist
+        print(f"doluluk dagilimi {len(doluluk)} gercek kirpmadan bootstrap "
+              f"ediliyor (dikey ortanca "
+              f"{ist.median(d for d, _ in doluluk):.2f})")
 
     if args.sheet:
         hucreler = []
         for i in range(24):
-            im, metin = uret(rng, fontlar, i / 23, havuz, taban)
+            im, metin = uret(rng, fontlar, i / 23, havuz, taban, doluluk)
             c = np.full((HEDEF_YUKSEKLIK + 26, HEDEF_GENISLIK, 3), 22, np.uint8)
             c[:HEDEF_YUKSEKLIK] = im
             cv2.putText(c, metin, (4, HEDEF_YUKSEKLIK + 18),
@@ -442,7 +555,7 @@ def main(argv: list[str] | None = None) -> int:
         # orneklerin ucte birinden fazlasi en zor bantta uretiliyor.
         z = (args.zorluk if args.zorluk is not None
              else min(1.0, i / max(1, args.adet - 1) * RAMPA))
-        im, metin = uret(rng, fontlar, z, havuz, taban)
+        im, metin = uret(rng, fontlar, z, havuz, taban, doluluk)
         ad = f"{i:07d}_{metin}.jpg"
         cv2.imwrite(str(args.out / ad), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
         manifest.append(f"{ad}\t{metin}\t{z:.3f}")
