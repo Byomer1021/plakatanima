@@ -10,17 +10,18 @@ recogniser, and a real-time inference path. English summary below.*
 
 ## Durum
 
-Faz 0 (veri) hazır. Faz 2 üç kez eğitildi. Gerçek plakalarda son ölçüm:
-karakter doğruluğu **0.68**, tam dizi **%15.5**, ortalama düzenleme
-mesafesi **2.51**. İlk iki koşu sıfır ve 0.42'de takıldı; ikisinin de
-sebebi bulunup düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md)
-bölüm 10-12).
+Faz 0 (veri) ve Faz 2 hazır. Sentetikle eğitilip gerçek plakalarla ince
+ayarlanan tanıyıcı, **hiçbir karara girmemiş** 34 plakalık test kümesinde
+plakaların **18'ini** doğru okuyor (%52.9); karakter doğruluğu 0.95,
+ortalama düzenleme mesafesi 0.37. Yol buraya düz gelmedi: ilk koşu sıfır
+verdi, ikincisi 0.42'de takıldı, üçü de ölçülüp düzeltildi
+([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-13).
 
 | faz | konu | durum |
 |---|---|---|
 | 0 | Sentetik üreteç + gerçek veri toplama | ✅ |
 | 1 | Tespit modeli (köşe regresyonlu) | ⏳ |
-| 2 | Tanıma modeli, CTC | 🔄 eğitildi, kalibrasyon sürüyor |
+| 2 | Tanıma modeli, CTC | ✅ eğitildi + gerçek veriyle ince ayar |
 | 3 | Kısıtlı çözümleme, güven kalibrasyonu | ⏳ |
 | 4 | TensorRT FP16/INT8 | ⏳ bulut GPU'da |
 | 5 | C++ boru hattı, takip, zamansal oylama | ⏳ |
@@ -91,6 +92,7 @@ python scripts/label_plates.py --only <kuyruk>  # 4 köşe + metin
 python scripts/export_plates.py                 # dikleştir ve ölç
 python scripts/generate_plates.py --adet 100000 # sentetik küme
 python scripts/train_recognizer.py --cihaz cuda --epoch 20
+python scripts/finetune.py                      # gerçek veriyle ince ayar
 ```
 
 Eğitim **bulutta** yapılır. Yerel GTX 1080 ağır yük altında dört kez düştü;

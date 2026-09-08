@@ -465,3 +465,66 @@ Plan tek kare tam dizi doğruluğunu %90-95 bandına koyuyordu; ölçülen
 2. **Faz 3'ün kısıtlı çözümleyicisi yazılmadı.** Ortalama düzenleme mesafesi
    2.51; geçerli plaka biçimi (il 01-81, düzen kalıpları) kısıtı bu hataların
    bir kısmını kapatır. Ne kadarını kapattığı ölçülecek, tahmin edilmeyecek.
+
+---
+
+## 13. Gerçek veriyle ince ayar, ve ilk kez dürüst bir test kümesi
+
+Üç eğitim koşusunun üçünde de gerçek plakaların **tamamı** doğrulamadaydı;
+hiçbiri eğitimde kullanılmadı. Bölme zaten plakaya göre yapıldığı için eğitim
+yarısını (566 kırpma / 204 plaka) eğitime katmak sızıntı değil — kullanılmamış
+veri. `scripts/finetune.py` bunu yapıyor: `son.pt`'den devam, her epoch tüm
+gerçek eğitim kırpmaları (hafif artırılmış) + sentetikten taze eşit sayıda
+örnek, öğrenme oranı 1/10.
+
+Sentetik karışımda kalıyor çünkü yalnızca 566 gerçekle eğitmek modelin
+sentetikte öğrendiği genel karakter bilgisini silebilir.
+
+**60 epoch, yerelde CPU'da 11.6 dakika.** Bu iş için GPU gerekmiyor ve bu
+makinede GPU zaten güvenilir değil.
+
+### Seçim ve rapor ayrıldı
+
+60 epoch boyunca 68 plakaya bakıp en iyisini seçmek, o kümeye **seçim yoluyla**
+aşırı uydurmaktır; bildirilen sayı artık saf değildir. Doğrulama plakaları
+ikiye bölündü:
+
+| küme | boyut | rolü |
+|---|---|---|
+| seçim | 88 kırpma / 34 plaka | epoch seçimi buna bakar |
+| rapor | 157 kırpma / 34 plaka | **hiçbir karara girmez** |
+
+Üç küme (eğitim / seçim / rapor) plaka metni bazında **tamamen ayrık** —
+doğrulandı. Tek istisna bir yakın çift: eğitimdeki `34FY3424` ile rapordaki
+`34FT3424` bir karakter farklı.
+
+### Sonuç — rapor kümesi, ince ayar öncesi ve sonrası
+
+| ölçüt | öncesi | sonrası |
+|---|---|---|
+| **PLAKA çoğunluk oyu** | 0.118 (4/34) | **0.529 (18/34)** |
+| PLAKA en az bir doğru | 0.176 | 0.559 |
+| karakter | 0.676 | 0.953 |
+| düzenleme | 2.55 | **0.37** |
+| kırpma tam dizi | 0.102 | 0.758 |
+
+**Son satırı manşet yapmıyoruz.** Rapor kümesinde plaka başına kırpma sayısı
+ortanca 1 ama en çok 70: tek bir plaka (`34KF2718`) 157 kırpmanın 70'i, yani
+%45'i. Kırpma bazında ölçmek o plakayı 70 kez saymak demek. Bölüm 9'da kurulan
+kural burada bir kez daha karşılığını buldu — **gerçek payda plaka**.
+
+### Sınırlar, sayıyı olduğundan büyük okumamak için
+
+- **34 plaka.** Çözünürlük 1/34 = %2.9; tek plaka oynaması sonucu %3 oynatıyor.
+- **Tek kayıt.** Eğitim de test de aynı dashcam'in aynı sürüşlerinden. Başka
+  kamera, başka şehir, başka gece koşulu için ölçüm **yok**.
+- Ölçülen şey dikleştirilmiş kırpmadan okuma; dedektörün köşeleri ne kadar iyi
+  bulduğu buraya dahil değil (Faz 1 henüz yok).
+
+### Sırada ne var, ve neden şimdi
+
+Ortalama düzenleme mesafesi **0.37**. Bu, hataların çoğunun artık tek karakter
+olduğu anlamına geliyor — ve geçerli plaka biçimi kısıtı (il 01-81, düzen
+kalıpları, Q/W/X yok) tam olarak bu hataları kapatan şey. Faz 3 ilk kez
+üzerinde çalışacağı düzgün bir tabana sahip; düzenleme mesafesi 2.51 iken
+kısıt koymak anlamlı olmazdı.
