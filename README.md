@@ -10,10 +10,11 @@ recogniser, and a real-time inference path. English summary below.*
 
 ## Durum
 
-Faz 0 (veri) hazır. Faz 2 iki kez eğitildi; ikinci koşu gerçek plakalarda
-karakter doğruluğu 0.42'de doygunlaştı ve sebebi ölçülüp düzeltildi
-([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-11). Üçüncü koşu
-bekliyor.
+Faz 0 (veri) hazır. Faz 2 üç kez eğitildi. Gerçek plakalarda son ölçüm:
+karakter doğruluğu **0.68**, tam dizi **%15.5**, ortalama düzenleme
+mesafesi **2.51**. İlk iki koşu sıfır ve 0.42'de takıldı; ikisinin de
+sebebi bulunup düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md)
+bölüm 10-12).
 
 | faz | konu | durum |
 |---|---|---|

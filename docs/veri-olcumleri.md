@@ -411,3 +411,57 @@ görülüyor.
 Karakter adımı artık %10 eksik yerine %8 fazla. Kalan fark kovalanmadı: aşağı
 akışta bir metrik olmadan dağılım kovalamak tahmin yürütmektir ve metrik artık
 mevcut — bir sonraki koşu.
+
+---
+
+## 12. Üçüncü koşu: ölçek düzeltmesinin bedeli ölçüldü
+
+Bölüm 11'in `metne_kirp()` katmanıyla yeniden üretilen 100k, aynı ayarla:
+
+```
+epoch  1  kayıp 5.375  tam dizi 0.000  karakter 0.367  düzenleme 4.95
+epoch  4  kayıp 0.064  tam dizi 0.106  karakter 0.681  düzenleme 2.49
+epoch 12  kayıp 0.012  tam dizi 0.069  karakter 0.589  düzenleme 3.22
+epoch 20  kayıp 0.000  tam dizi 0.155  karakter 0.678  düzenleme 2.51
+```
+
+| | 2. koşu | 3. koşu |
+|---|---|---|
+| `karakter` | 0.400 | **0.678** |
+| `tam dizi` | 0.008 (2 kırpma) | **0.155** (38 kırpma) |
+| `düzenleme` | 4.69 | **2.51** |
+
+Bölüm 11'de kurulan çıkarım — "ölçek farkı sebep, düzeltilirse doğruluk
+artar" — o zaman ölçülmemişti, çıkarımdı. Ölçüldü ve tuttu. Epoch 1'de
+`karakter` 0.367; önceki koşunun **yirmi epoch sonunda** vardığı yerin
+neredeyse iki katı.
+
+### Seçim ölçütü hâlâ tam oturmadı
+
+Bölüm 11'de `tam dizi` gürültülü olduğu için ölçüt düzenleme mesafesi
+yapılmıştı. Bu koşuda ikisi **ayrıştı**:
+
+| epoch | düzenleme | tam dizi |
+|---|---|---|
+| 4 | **2.49** ← seçilen | 0.106 (26 kırpma) |
+| 20 | 2.51 | **0.155** (38 kırpma) |
+
+Düzenleme mesafesi arasında %0.8 fark var; tam dizide %46. `best.pt` epoch
+4'ü aldı, yani ürün açısından önemli olan ölçütte **daha kötü** olanı.
+
+Ders: 245 kırpmada iki ölçütün ikisi de tek başına yeterli değil. Düzenleme
+mesafesi kararlı ama plakanın tamamının okunmasını izlemiyor; tam dizi onu
+izliyor ama kırpma sayısı çözünürlüğü vermiyor. Şimdilik `son.pt` her epoch
+yazıldığı için hiçbir ağırlık kaybolmuyor — seçim ölçütünü tek bir sayıya
+indirmek yerine iki aday yerelde karşılaştırılacak.
+
+### Nerede duruyoruz
+
+Plan tek kare tam dizi doğruluğunu %90-95 bandına koyuyordu; ölçülen
+**%15.5**. Aradaki fark hâlâ büyük ve iki bilinen kaldıraç var:
+
+1. **Gerçek veri eğitimde hiç kullanılmadı.** 272 plakanın tamamı doğrulamada.
+   Eğitim yarısı (204 plaka / ~566 kırpma) ince ayar için duruyor.
+2. **Faz 3'ün kısıtlı çözümleyicisi yazılmadı.** Ortalama düzenleme mesafesi
+   2.51; geçerli plaka biçimi (il 01-81, düzen kalıpları) kısıtı bu hataların
+   bir kısmını kapatır. Ne kadarını kapattığı ölçülecek, tahmin edilmeyecek.
