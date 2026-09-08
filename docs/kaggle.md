@@ -91,13 +91,23 @@ Doğrulama kümesi **plakaya göre** ayrılıyor, kırpmaya göre değil. Bir pl
 kırpmada geçebiliyor; kırpmaya göre bölünse aynı plaka iki tarafta da olur,
 model ezberler ve skor hiçbir şey iyileşmeden tırmanır.
 
-### Beklenti
+### Ölçülen (ikinci koşu)
 
-Plan iyi bir üreteçle tek kare tam dizi doğruluğunu %90-95 bandına koyuyor. Bu
-projede sentetiğin üst yarısı gerçekten daha temiz (bkz.
-`docs/veri-olcumleri.md` bölüm 9), yani alan farkı var. İlk koşu bunu
-ölçecek — **düşük çıkarsa bu bir başarısızlık değil, ölçülmüş bir alan farkı**
-ve çözümü belli: sentetiği yeniden kalibre edip üretmek 29 dakika.
+Plan tek kare tam dizi doğruluğunu %90-95 bandına koyuyordu. Ölçülen:
+
+```
+epoch  3  kayıp 0.375  tam dizi 0.000  karakter 0.418
+epoch 20  kayıp 0.004  tam dizi 0.008  karakter 0.400
+```
+
+Karakter doğruluğu epoch 3'te doygunlaşıyor, eğitim kaybı yüz kat inerken
+kıpırdamıyor. Bu **ölçülmüş bir alan farkı** ve sebebi bulundu: sentetikte
+metin kadrajın %78'ini dolduruyordu, gerçekte %100. Model karakterleri
+okuyabiliyor ama sembol düşürüyordu — plaka başına 7.82 yerine 4.76.
+Ayrıntısı `docs/veri-olcumleri.md` bölüm 11.
+
+`tam dizi` bu ölçekte **model seçmek için kullanılamaz**: doğrulama 245
+kırpma, 0.012 demek 3 kırpma demek. Seçim ölçütü düzenleme mesafesi.
 
 ---
 

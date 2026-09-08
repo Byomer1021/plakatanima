@@ -10,13 +10,16 @@ recogniser, and a real-time inference path. English summary below.*
 
 ## Durum
 
-Faz 0 (veri) ve Faz 2'nin iskeleti hazır. Eğitim henüz yapılmadı.
+Faz 0 (veri) hazır. Faz 2 iki kez eğitildi; ikinci koşu gerçek plakalarda
+karakter doğruluğu 0.42'de doygunlaştı ve sebebi ölçülüp düzeltildi
+([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-11). Üçüncü koşu
+bekliyor.
 
 | faz | konu | durum |
 |---|---|---|
 | 0 | Sentetik üreteç + gerçek veri toplama | ✅ |
 | 1 | Tespit modeli (köşe regresyonlu) | ⏳ |
-| 2 | Tanıma modeli, CTC | ✅ yazıldı, eğitilmedi |
+| 2 | Tanıma modeli, CTC | 🔄 eğitildi, kalibrasyon sürüyor |
 | 3 | Kısıtlı çözümleme, güven kalibrasyonu | ⏳ |
 | 4 | TensorRT FP16/INT8 | ⏳ bulut GPU'da |
 | 5 | C++ boru hattı, takip, zamansal oylama | ⏳ |
