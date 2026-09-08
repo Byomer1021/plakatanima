@@ -57,3 +57,7 @@ paket/
 
 # Teshis goruntuleri: bazilari gercek plaka iceriyor, depo herkese acik.
 data/_*.jpg
+
+# Derlenmis ikili
+cpp/*.exe
+cpp/*.o

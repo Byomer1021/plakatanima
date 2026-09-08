@@ -528,3 +528,95 @@ olduğu anlamına geliyor — ve geçerli plaka biçimi kısıtı (il 01-81, dü
 kalıpları, Q/W/X yok) tam olarak bu hataları kapatan şey. Faz 3 ilk kez
 üzerinde çalışacağı düzgün bir tabana sahip; düzenleme mesafesi 2.51 iken
 kısıt koymak anlamlı olmazdı.
+
+---
+
+## 14. Faz 3: kısıtlı çözümleyici (C++), ve yazarken bulunan gramer hatası
+
+### Önce: gramer gerçek plakaların yarısını reddediyordu
+
+Kısıtı yazmadan önce zorunlu bir kontrol yapıldı — dilbilgisi gerçek
+etiketleri kabul ediyor mu? Sonuç:
+
+| düzen (harf, rakam) | gerçek plaka | üreteçte var mı |
+|---|---|---|
+| 3 harf 3 rakam (8 kr) | **146** | **HAYIR** |
+| 2 harf 4 rakam (8 kr) | 79 | evet |
+| 3 harf 2 rakam (7 kr) | 22 | evet |
+| 2 harf 3 rakam (7 kr) | 21 | evet |
+| 1 harf 4 rakam (7 kr) | 2 | evet |
+
+`DUZENLER` listesinde **(3, 3) yoktu** ve o, gerçek verinin en yaygın düzeni:
+272 plakanın 146'sı, %54'ü. Üreteç bugüne kadar tek bir 3harf-3rakam plaka
+üretmedi.
+
+Bu, bölüm 11'de **belirti olarak görülmüştü**: "sentetik %75 yedi karakterli,
+gerçek %87 sekiz karakterli". Belirti kayda geçmiş, sebebi aranmamıştı. Sebebi
+buymuş.
+
+Bu dilbilgisiyle kısıt yazılsaydı doğruluk artmaz, **çökerdi** — çözümleyici
+gerçek plakaların %54'ünü geçersiz sayardı.
+
+Düzeltildi: `(3, 3)` eklendi ve düzenler artık eşit olasılıkla değil,
+**ölçülen gerçek dağılımdan** bootstrap ediliyor. Üretilen uzunluk dağılımı
+%88 sekiz karakterli — gerçekte %87.
+
+`tests/test_dilbilgisi.py` bu hatayı tutuyor. Üç test birden düşüyor:
+ölçülen düzenin listede olması, üretilen metinlerin geçerliliği, ve uzunluk
+dağılımı. Testin hatayı gerçekten yakaladığı `(3, 3)` geri çıkarılarak
+doğrulandı — geçen bir test, tuttuğunu iddia ettiği hatada düşmüyorsa
+işe yaramaz.
+
+### Çözümleyici
+
+`cpp/decode.cpp` — kısıtlı CTC ön ek ışını araması. Python `log_softmax`
+matrislerini `paket/logits.bin` olarak döküyor, C++ ikilisi okuyup çözüyor,
+Python puanlıyor. İki tarafı tek süreçte birleştirmek (pybind, ctypes) bu
+aşamada gereksiz: ölçülecek şey çözümleyicinin **kazancı**, bağlama maliyeti
+değil.
+
+Dilbilgisi: il 01-81, 1-3 harf (Q/W/X yok), 2-4 rakam, geçerli (harf, rakam)
+çiftleri (1,4) (2,3) (2,4) (3,2) (3,3). 272 gerçek plakanın **270'ini** kabul
+ediyor. Etmediği ikisi `013426` ve `E83KZV` — hiçbir Türk plakası biçimine
+uymuyorlar, muhtemelen etiketleme hatası. **Kısıtın bedeli bu:** biçime
+uymayan plaka artık asla doğru okunamaz. %0.7 ve bilerek ödendi.
+
+### Doğrulama: aynı matris, aynı greedy
+
+Kazancı ölçmeden önce C++ tarafındaki **kısıtsız** greedy'nin Python'unkiyle
+birebir aynı çıkması gerekiyordu. 811/811 aynı. Bu geçmeseydi "kısıtın
+kazancı" diye ölçülen şey matris aktarım hatası olurdu.
+
+### Sonuç — rapor kümesi (hiçbir karara girmedi, 34 plaka)
+
+| ölçüt | greedy | kısıtlı | fark |
+|---|---|---|---|
+| **PLAKA çoğunluk oyu** | 0.529 (18/34) | **0.647 (22/34)** | **+4 plaka** |
+| kırpma tam dizi | 0.758 | 0.815 | +0.057 |
+| karakter | 0.953 | 0.964 | +0.011 |
+| düzenleme | 0.369 | **0.280** | −0.089 |
+
+Rapor kümesinde kısıt 21 kırpmada çıktıyı değiştirdi: **9 düzeldi, 0 bozuldu.**
+Düzelttikleri tam da beklenen sınıf — biçim bilgisiyle ayırt edilebilen tekil
+karakter hataları:
+
+```
+349Y8229   -> 34RY8229     9/R
+34JF5O99   -> 34JF5099     O/0
+350FU335   -> 35CFU335     0/C
+34KJGB14   -> 34KJG814     B/8
+34KF271I8  -> 34KF2718     fazladan I
+```
+
+**Eğitim kümesinde kısıt hiçbir şey kazandırmıyor, çok az kaybettiriyor**
+(düzenleme 0.004 → 0.005). Beklenen: model o örnekleri zaten %99.6 doğru
+okuyor ve zaten doğru olan bir çıktıda kısıt ancak zarar verebilir. Kazanç
+modelin *emin olmadığı* yerden geliyor.
+
+### Toplam yol
+
+| aşama | rapor kümesinde doğru okunan plaka |
+|---|---|
+| yalnızca sentetik (3. koşu) | 4/34 |
+| + gerçek veriyle ince ayar | 18/34 |
+| + kısıtlı çözümleyici | **22/34** |

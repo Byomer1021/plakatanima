@@ -76,7 +76,18 @@ HARFLER = "ABCDEFGHIJKLMNOPRSTUVYZ"
 RAKAMLAR = string.digits
 
 #: Gecerli duzenler: (harf sayisi, rakam sayisi). Il kodu hepsinde iki hane.
-DUZENLER = [(1, 4), (2, 3), (2, 4), (3, 2)]
+#:
+#: DIKKAT - bu liste bir kez EKSIKTI ve pahaliya mal oldu. (3, 3) yoktu, oysa
+#: 272 gercek plakanin 146'si (%54) tam olarak o duzende. Uretec bugune kadar
+#: tek bir 3harf-3rakam plaka uretmedi. Bolum 11'deki "sentetik %75 yedi
+#: karakterli, gercek %87 sekiz karakterli" bulgusunun sebebi buydu: belirti
+#: gorulmustu, sebebi bulunmamisti.
+#:
+#: Agirliklar da olculdu. Duzenler esit olasilikla secilirse sentetigin
+#: duzen dagilimi gercege benzemiyor; bootstrap ile gercek dagilim tasiniyor.
+DUZEN_YEDEK = [((3, 3), 146), ((2, 4), 79), ((3, 2), 22),
+               ((2, 3), 21), ((1, 4), 2)]
+DUZENLER = [d for d, _ in DUZEN_YEDEK]
 
 #: Gercek plaka 520x110 mm = 4.7:1. Cizim bu oranda yapiliyor.
 CIZIM_YUKSEKLIK = 220
@@ -218,10 +229,38 @@ def fontlari_bul() -> list[Path]:
     return bulunan
 
 
-def plaka_metni(rng: random.Random) -> str:
+def gercek_duzenler() -> list[tuple[int, int]]:
+    """Gercek plaka metinlerinden olculen duzen dagilimi (bootstrap kaynagi).
+
+    Agirlikli havuz olarak donuyor: her duzen gercekte gorulen sayida
+    tekrarlaniyor, rng.choice dogrudan dogru olasilikla cekiyor.
+    """
+    import re
+    yol = ROOT / "data" / "plates.jsonl"
+    if not yol.is_file():
+        print("UYARI: plates.jsonl yok, duzen dagilimi OLCULMEDI, olculmus "
+              "yedek dagilim kullaniliyor.")
+        return [d for d, n in DUZEN_YEDEK for _ in range(n)
+                if d in DUZENLER]
+    import json
+    havuz = []
+    for satir in yol.read_text(encoding="utf-8").splitlines():
+        if not satir.strip():
+            continue
+        m = re.fullmatch(r"(\d{2})([A-Z]+)(\d+)",
+                         json.loads(satir).get("metin", ""))
+        if m and (len(m.group(2)), len(m.group(3))) in DUZENLER:
+            havuz.append((len(m.group(2)), len(m.group(3))))
+    if not havuz:
+        return [d for d, n in DUZEN_YEDEK for _ in range(n)
+                if d in DUZENLER]
+    return havuz
+
+
+def plaka_metni(rng: random.Random, duzen_havuzu=None) -> str:
     """Gecerli bir plaka dizisi uretir; il kodu 01-81 arasinda DUZGUN dagilir."""
     il = rng.randint(1, 81)
-    harf_n, rakam_n = rng.choice(DUZENLER)
+    harf_n, rakam_n = rng.choice(duzen_havuzu or DUZENLER)
     harf = "".join(rng.choice(HARFLER) for _ in range(harf_n))
     rakam = "".join(rng.choice(RAKAMLAR) for _ in range(rakam_n))
     return f"{il:02d}{harf}{rakam}"
@@ -466,7 +505,8 @@ def goruntuleme(im: np.ndarray, rng: random.Random, zorluk: float,
 def uret(rng: random.Random, fontlar: list[Path], zorluk: float,
          genislik_havuzu: list[float] | None = None,
          keskinlik_tabani: float = 0.0,
-         doluluk_havuzu: list[tuple[float, float]] | None = None
+         doluluk_havuzu: list[tuple[float, float]] | None = None,
+         duzen_havuzu: list[tuple[int, int]] | None = None
          ) -> tuple[np.ndarray, str]:
     """Bir sentetik plaka uretir; taban altinda kalirsa yeniden dener.
 
@@ -480,7 +520,7 @@ def uret(rng: random.Random, fontlar: list[Path], zorluk: float,
     KESKIN ornek zararsiz, yalnizca kolay.
     """
     for _ in range(6):
-        metin = plaka_metni(rng)
+        metin = plaka_metni(rng, duzen_havuzu)
         im, kutu = temiz_plaka(metin, rng.choice(fontlar), rng)
         im = metne_kirp(im, kutu, rng, doluluk_havuzu)
         im = fiziksel_yipranma(im, rng)
@@ -513,6 +553,7 @@ def main(argv: list[str] | None = None) -> int:
     fontlar = fontlari_bul()
     havuz = gercek_genislikler()
     doluluk = gercek_doluluk()
+    duzenler = gercek_duzenler()
     print(f"{len(fontlar)} font: " + ", ".join(f.name for f in fontlar))
     taban = gercek_keskinlik_tabani()
     if havuz:
@@ -528,7 +569,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.sheet:
         hucreler = []
         for i in range(24):
-            im, metin = uret(rng, fontlar, i / 23, havuz, taban, doluluk)
+            im, metin = uret(rng, fontlar, i / 23, havuz, taban, doluluk, duzenler)
             c = np.full((HEDEF_YUKSEKLIK + 26, HEDEF_GENISLIK, 3), 22, np.uint8)
             c[:HEDEF_YUKSEKLIK] = im
             cv2.putText(c, metin, (4, HEDEF_YUKSEKLIK + 18),
@@ -555,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
         # orneklerin ucte birinden fazlasi en zor bantta uretiliyor.
         z = (args.zorluk if args.zorluk is not None
              else min(1.0, i / max(1, args.adet - 1) * RAMPA))
-        im, metin = uret(rng, fontlar, z, havuz, taban, doluluk)
+        im, metin = uret(rng, fontlar, z, havuz, taban, doluluk, duzenler)
         ad = f"{i:07d}_{metin}.jpg"
         cv2.imwrite(str(args.out / ad), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
         manifest.append(f"{ad}\t{metin}\t{z:.3f}")

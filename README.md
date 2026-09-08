@@ -10,19 +10,27 @@ recogniser, and a real-time inference path. English summary below.*
 
 ## Durum
 
-Faz 0 (veri) ve Faz 2 hazır. Sentetikle eğitilip gerçek plakalarla ince
-ayarlanan tanıyıcı, **hiçbir karara girmemiş** 34 plakalık test kümesinde
-plakaların **18'ini** doğru okuyor (%52.9); karakter doğruluğu 0.95,
-ortalama düzenleme mesafesi 0.37. Yol buraya düz gelmedi: ilk koşu sıfır
-verdi, ikincisi 0.42'de takıldı, üçü de ölçülüp düzeltildi
-([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-13).
+Faz 0, 2 ve 3 hazır. Sentetikle eğitilen, gerçek plakalarla ince ayarlanan
+ve C++ kısıtlı çözümleyiciden geçen tanıyıcı, **hiçbir karara girmemiş**
+34 plakalık test kümesinde plakaların **22'sini** doğru okuyor (%64.7);
+karakter doğruluğu 0.96, ortalama düzenleme mesafesi 0.28.
+
+| aşama | doğru okunan plaka |
+|---|---|
+| yalnızca sentetik | 4/34 |
+| + gerçek veriyle ince ayar | 18/34 |
+| + kısıtlı çözümleyici | **22/34** |
+
+Yol buraya düz gelmedi: ilk koşu sıfır verdi, ikincisi 0.42'de takıldı,
+üreteç gerçek plakaların %54'ünü hiç üretmiyordu. Hepsi ölçülüp
+düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-14).
 
 | faz | konu | durum |
 |---|---|---|
 | 0 | Sentetik üreteç + gerçek veri toplama | ✅ |
 | 1 | Tespit modeli (köşe regresyonlu) | ⏳ |
 | 2 | Tanıma modeli, CTC | ✅ eğitildi + gerçek veriyle ince ayar |
-| 3 | Kısıtlı çözümleme, güven kalibrasyonu | ⏳ |
+| 3 | Kısıtlı çözümleme (C++) | ✅ güven kalibrasyonu kaldı |
 | 4 | TensorRT FP16/INT8 | ⏳ bulut GPU'da |
 | 5 | C++ boru hattı, takip, zamansal oylama | ⏳ |
 | 6 | Uç cihaz ölçümleri | ❌ kapsam dışı — donanım yok |
@@ -93,6 +101,9 @@ python scripts/export_plates.py                 # dikleştir ve ölç
 python scripts/generate_plates.py --adet 100000 # sentetik küme
 python scripts/train_recognizer.py --cihaz cuda --epoch 20
 python scripts/finetune.py                      # gerçek veriyle ince ayar
+g++ -O2 -std=c++17 -o cpp/decode.exe cpp/decode.cpp
+python scripts/export_logits.py && ./cpp/decode.exe
+python scripts/score_decoder.py                 # kısıtın kazancı
 ```
 
 Eğitim **bulutta** yapılır. Yerel GTX 1080 ağır yük altında dört kez düştü;
