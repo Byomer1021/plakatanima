@@ -32,7 +32,7 @@ düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-14).
 | 2 | Tanıma modeli, CTC | ✅ eğitildi + gerçek veriyle ince ayar |
 | 3 | Kısıtlı çözümleme (C++) + güven kalibrasyonu | ✅ |
 | 4 | TensorRT FP16/INT8 | ⏳ bulut GPU'da |
-| 5 | Zamansal oylama ✅ · takip ve C++ boru hattı ⏳ | 🔶 |
+| 5 | Zamansal oylama + ByteTrack takibi ✅ · C++ boru hattı ⏳ | 🔶 |
 | 6 | Uç cihaz ölçümleri | ❌ kapsam dışı — donanım yok |
 
 ---
@@ -108,6 +108,7 @@ python scripts/calibrate.py                     # güven eğrisi
 python scripts/train_corners.py                 # köşe regresyonu
 python scripts/end_to_end.py                    # köşe hatasının bedeli
 python scripts/vote.py                          # zamansal oylama
+python scripts/track_pipeline.py                # takip + uctan uca
 python scripts/benchmark.py                     # gecikme
 ```
 

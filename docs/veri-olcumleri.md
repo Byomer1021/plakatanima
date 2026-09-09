@@ -1002,3 +1002,128 @@ bağlanacağı için geçerli olan ikincisi.
 - Tek makine, tek kayıt, CPU. Başka donanım için sayı yok.
 - YOLO ölçümü `yolov8n` ile; daha büyük bir model daha yavaş, daha küçüğü
   yok.
+
+---
+
+## 20. Takip, ve güvenin ters yönü gösterdiği arıza
+
+Bölüm 17'nin her sayısı kırpmaları gerçek plaka metnine göre grupladı, yani
+kusursuz bir takipçi varsaydı. `track_pipeline.py` o varsayımı kaldırıyor:
+ByteTrack izliyor, gruplar iz numarasından geliyor.
+
+**Ölçüm neden dolaylı olmak zorunda:** etiketli 811 kırpma **ikişer saniye**
+arayla örneklendi (`harvest_plates.py --every` saniye cinsinden). ByteTrack o
+boşlukta bir aracı bağlayamaz, dolayısıyla mevcut etiketler ize
+bağlanamıyor ve iz düzeyinde etiket yok. Tanıyıcı ise izlerden habersiz —
+bu yüzden iki ayrı izin aynı plakayı okuması, kimliğin **bağımsız** kanıtı.
+
+`maltepe.mkv`, 180 saniye, her 4. kare (etkin 15 fps): **211 iz, 2472 kırpma.**
+
+### Verim: projenin şimdiye kadar yazmadığı sayı
+
+| | adet | pay |
+|---|---|---|
+| kırpma | 2472 | |
+| dilbilgisine uygun plaka üretti | 1303 | %53 |
+| ayrıca güvenli (≥0.7) | 561 | %23 |
+
+Bu düşüklük kusur değil, işin tanımı. Etiketlemede de hasat edilen
+kırpmaların yalnızca **%38'inde okunur plaka vardı** (811 `ok` / 2119 etiket;
+kalanı 706 `plakasiz` + 602 `okunmaz`).
+
+**Ve bu, bölüm 10-18'deki her sayının yazılmamış koşuluydu.** "34 plakanın
+22'sini okuyor" doğru ama eksik: o 34 plaka, plakası okunabilen kırpmalardan
+seçilmişti. Boru hattı düzeyindeki verim ile tanıyıcı düzeyindeki doğruluk
+farklı sayılar ve proje şimdiye kadar yalnızca ikincisini yazmıştı.
+
+### Parçalanma
+
+Zamansal olarak tutarlı 84 plakanın **7'si (%8)** birden çok ize bölünmüş,
+10 fazladan iz. Bölünmeler eşzamanlı — `34AEM481` için dört iz ve hepsi 3-5.
+saniyede. Yani ByteTrack aynı araca aynı anda birden çok kimlik veriyor,
+zaman içinde kaybedip yeniden bulmuyor.
+
+105 izin **30'u yalnızca tek güvenli okuma** üretiyor. Bölüm 18'de kaybedilen
+yedi plakanın yedisi de tek kareliydi; oylama korumasının olmadığı yer burası
+ve takip onu genişletmiyor.
+
+### Asıl bulgu: güven uydurmayı ayıramıyor, tersini gösteriyor
+
+Güvenli okumaların içinde, **aynı plaka metnini dakikalarca arayla ve farklı
+izlerde** üreten dört kayıt çıktı:
+
+| plaka | yayılım | iz |
+|---|---|---|
+| 01CCC01 | 132 s | 6 |
+| 10CCC01 | 131 s | 6 |
+| 09CCC01 | 129 s | 4 |
+| 08CCC01 | 81 s | 3 |
+
+Bir araç dashcam önünde iki dakika kalıp sonra geri gelmez. Bunlar uydurma.
+Ve hepsinde aynı imza var — harf bloğu tek harfin tekrarı:
+
+| küme | tekrarlı harf bloğu |
+|---|---|
+| imkânsız okumalar | 4/4 |
+| tutarlı okumalar | 6/119 |
+| gerçek 811 plaka | 3/811 (%0.4) |
+
+**Güven bunları süzmüyor. Süzemez:**
+
+| | güven ortancası |
+|---|---|
+| uydurma okumalar | **1.000** |
+| tutarlı okumalar | 0.933 |
+
+| eşik | kirlilik |
+|---|---|
+| 0.70 | %4.3 |
+| 0.80 | %5.0 |
+| 0.90 | %6.5 |
+| 0.95 | **%9.4** |
+
+Eşiği yükseltmek kirliliği **artırıyor**: uydurmalar her eşikten geçiyor,
+elenen gerçek okumalar oluyor.
+
+Sebep, güvenin tanımında ve bölüm 15'te yazılmıştı: güven **marja** dayanıyor,
+en iyi ile ikinci en iyi geçerli plaka arasındaki farka. Okunacak bir şey
+olmayan kırpmada modelin tek bir varsayılan kalıbı var ve **rakibi yok**;
+marj tavan yapıyor. Gerçekten zor ama okunabilir bir plakada rakip adaylar
+var ve marj küçülüyor.
+
+Marj "alternatifler arasında ne kadar eminim" sorusunu cevaplıyor. "Burada
+okunacak bir şey var mı" başka bir soru ve boru hattında onu soran hiçbir
+bileşen yok.
+
+### Kök sebep: modele hiç "yok" demesi öğretilmedi
+
+- Sentetik 100k'nın hepsinde plaka var.
+- Gerçek ince ayar `durum == "ok"` olan 811 kırpmayla yapıldı.
+- Kalibrasyon eğrisi de aynı kümede uyduruldu.
+- **706 `plakasiz` + 602 `okunmaz` kırpma etiketli olarak duruyor ve hiçbir
+  aşamada kullanılmadı.**
+
+Kısıtlı çözümleyici bunu ağırlaştırıyor: dilbilgisi kısıtı çöp girdide bile
+geçerli bir plaka üretmeye zorluyor. Bölüm 14 kısıtın kazancını ölçmüştü;
+bedeli burada görünüyor.
+
+Dağıtımda bu en kötü arıza tipi: sistem "okuyamadım" demek yerine belirli bir
+plaka numarası uyduruyor ve bunu tam güvenle yapıyor.
+
+### İlk okumamdaki hata
+
+Bu oranı önce **%11** hesaplamıştım. Gevşek bir dilbilgisiyle
+(`\d{2}[A-Z]+\d+`) süzmüştüm; boru hattının kendi süzgeci `DUZENLER`'i de
+kontrol ediyor ve `08C0` gibi dizgileri zaten eliyor. Doğru oran **%4.3**.
+Oran daha küçük, yön problemi aynı.
+
+### Ölçülmeyen
+
+İz düzeyinde etiket yok. Yukarıdaki parçalanma ve uydurma sayıları
+takipçinin ve tanıyıcının hatalarının **alt sınırı**: yalnızca güvenle
+okunan izlerde görülebilen hataları sayıyor. Plakası hiç okunamayan bir
+aracın izi bölünmüşse bu sayılara girmiyor.
+
+Uydurma tespiti de bir varsayım taşıyor: aynı plakayı dakikalarca arayla
+okuyan izlerin aynı araç olamayacağı. Bu güçlü bir varsayım ama kanıt değil;
+kesin ayrım ancak iz etiketleriyle yapılır.
