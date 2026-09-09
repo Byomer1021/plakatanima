@@ -690,3 +690,69 @@ tarafında 70 kırpmalı tek bir kolay plaka var ve ayrım orada daha rahat.
 Doğru okuma "AUC 0.95" değil, "0.86-0.95 aralığında".
 
 Uydurma kümesi 88 kırpma. İki parametreli bir eğri için yeterli ama ince.
+
+---
+
+## 16. `(3,3)` düzeltmesi ölçüldü: kazanç yok
+
+Bölüm 14 üreteçteki eksik düzeni buldu ve düzeltti. Açık kalan soru şuydu:
+düzeltilmiş sentetikle yeniden eğitmek modeli iyileştirir mi? Ön eğitim
+Kaggle turu gerektiriyor, o yüzden önce **ucuz yarısı** ölçüldü.
+
+### Önce: kusur hâlâ görünüyor mu
+
+Doğrulama kırpmaları düzene göre ayrıldı. Ön eğitimde hiç üretilmemiş `(3,3)`
+diğerlerinden kötüyse fark orada görünmeli:
+
+| düzen | plaka | çoğunluk oyu | ön eğitimde |
+|---|---|---|---|
+| 2h4r | 19 | 0.684 | vardı |
+| 3h3r | 39 | 0.615 | **yoktu** |
+| 2h3r | 7 | 0.571 | vardı |
+| 3h2r | 2 | 1.000 | vardı |
+
+`(3,3)` ile `(2,4)` arasındaki fark 0.069; bu örneklem boyutlarında belirsizlik
+±0.13. Üstelik ön eğitimde **bulunan** `2h3r` daha da düşük. Ceza görünmüyor.
+
+Muhtemel açıklama: ince ayar gerçek veriyle yapıldı ve gerçeğin %54'ü zaten
+`(3,3)`. Ön eğitimdeki boşluğu ince ayar kapatmış.
+
+### Sonra: kontrollü deney
+
+100k düzeltilmiş üreteçle yeniden üretildi (uzunluk dağılımı artık %13/%87 —
+gerçekle birebir) ve ince ayar **aynı başlangıç ağırlığından, aynı
+hiperparametrelerle, aynı bölme tohumuyla** tekrarlandı. Tek değişken sentetik
+kümenin düzen dağılımı.
+
+Seçim kümesinde, kısıtlı çözümleyiciyle:
+
+| | plaka çoğunluk oyu |
+|---|---|
+| `ince` (eski sentetik) | 21/34 |
+| `ince2` (düzeltilmiş) | 21/34 |
+
+**Ayırt edilemiyorlar.**
+
+### Seçim rapor kümesine bakılarak yapılmadı
+
+Rapor kümesinde `ince2` bir plaka önde (23/34'e karşı 22/34). O sayıya bakıp
+`ince2`'yi seçmek, rapor kümesini bir karara sokmak olurdu — bölüm 13'te tam
+bunu önlemek için ayrılmıştı ve seçilen sayı şişerdi. Seçim ölçütü ayırt
+edemediği için mevcut model (`ince`) korundu.
+
+Bir plaka farkı zaten 34 plakalık kümede %2.9, yani çözünürlüğün kendisi
+kadar.
+
+### Sonuç
+
+Ön eğitim için Kaggle turu **yapılmadı ve gerekçesi ölçüm**: iki bağımsız
+sinyal aynı yönü gösteriyor — düzen kırılımında ceza yok, kontrollü deneyde
+fark yok.
+
+Ölçülmeyen şey açıkça yazılsın: bu deney düzeltilmiş sentetiğin **ince ayar
+karışımındaki** etkisini ölçtü. Ön eğitimin kendisini düzeltilmiş kümeyle
+tekrarlamak ayrı bir sorudur ve ölçülmedi. Eldeki kanıt o turun değmeyeceğini
+söylüyor, kanıtlamıyor.
+
+Düzeltme yine de yerinde duruyor ve doğrudur: sentetikten sıfır eğiten biri
+gerçek plakaların %54'ünü hiç görmezdi.
