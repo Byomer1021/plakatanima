@@ -756,3 +756,77 @@ söylüyor, kanıtlamıyor.
 
 Düzeltme yine de yerinde duruyor ve doğrudur: sentetikten sıfır eğiten biri
 gerçek plakaların %54'ünü hiç görmezdi.
+
+---
+
+## 17. Faz 5: zamansal oylama, ve neden kazancı gösterilemedi
+
+Aynı plaka onlarca karede geçiyor ve her karede ayrı okunuyor. Beklenti:
+kareleri birleştirmek tek kareyi geçmeli, çünkü farklı karelerde farklı
+karakterler bozuluyor.
+
+Altı strateji, seçim kümesinde seçilip rapor kümesinde bildirildi:
+
+| strateji | seçim | rapor | rapor, çok kareli (7 plaka) |
+|---|---|---|---|
+| ilk kare (oylama yok) | 0.588 | 0.588 | 0.429 (3/7) |
+| düz çoğunluk | 0.618 | 0.647 | 0.714 (5/7) |
+| **güven ağırlıklı** | **0.647** | **0.676** | **0.857 (6/7)** |
+| eşikli (0.7) ağırlıklı | 0.647 | 0.676 | 0.857 |
+| karakter oylama | 0.647 | 0.676 | 0.857 |
+| en güvenli tek kare | 0.647 | 0.676 | 0.857 |
+
+**Dizgi oylamasının tavanı** (bir plakanın karelerinden en az biri doğruysa):
+seçimde 0.647, raporda 0.676.
+
+### Güven ağırlıklı oylama tavana değiyor
+
+Doğru bir okuma varsa buluyor, kaçırmıyor. Düz çoğunluk değmiyor (0.647): eşit
+oy vermek, emin olunan okumayı emin olunmayanın altında bırakabiliyor.
+Ağırlığın işe yaradığı yer burası.
+
+### Ama oylamanın seçime üstünlüğü gösterilemiyor
+
+**En güvenli tek kareyi almak — ki oylama değil, seçim — aynı sonucu
+veriyor.** Kalibrasyon yeterince iyi (AUC 0.95) olduğu için, doğru bir okuma
+varsa zaten en yüksek güvenli olan o oluyor. Bu veride toplamaya gerek
+kalmıyor.
+
+Karakter oylaması da tavanı **aşamadı**. Aşabilirdi: doğru karakterleri farklı
+karelerden toplayıp hiçbir karesi tam doğru olmayan bir plakayı kurtarmak
+dizgi oylamasının yapamayacağı şey. Yapmadı. Rapor kümesinde çok kareli
+yalnızca 7 plaka var; böyle bir kurtarma için fırsat da yok denecek kadar az.
+
+### Ölçünün gerçek boyutu
+
+Rapor kümesinin 34 plakasından **yalnızca 7'sinde birden fazla kare var**.
+Oylama yalnızca o 7'yi etkileyebilir. "0.676'ya karşı 0.647" farkı **tek bir
+plaka**. Tablodaki sayılar bu çözünürlükle okunmalı.
+
+Kare sayısıyla doğruluk ilişkisi (seçim + rapor, 68 plaka):
+
+| kare sayısı | doğru |
+|---|---|
+| 1 kare | 31/50 = 0.620 |
+| 2-4 kare | 6/10 = 0.600 |
+| 5+ kare | 8/8 = 1.000 |
+
+Bunu "daha çok oy daha iyi" diye okumak yanlış olur. Bir plakanın çok karesi
+olması, aracın uzun süre yakın ve görünür kalması demektir — yani kolay plaka
+demektir. Karıştırıcı değişken var ve bu ölçüm onu ayıramıyor.
+
+### Ölçülmeyen: takip
+
+Kırpmalar **gerçek plaka metnine göre** gruplandı, yani kusursuz bir takipçi
+varsayıldı. Gerçek boru hattında grupları ByteTrack kurar ve takip hatası —
+iki aracı birleştirmek, bir aracı ikiye bölmek — buraya ek gürültü katardı.
+O gürültü bu sayılara **dahil değil**. Ölçülen şey oylamanın kendi kazancı,
+boru hattının ucu değil.
+
+Faz 5'in diğer iki parçası (C++ boru hattı, takip) yapılmadı.
+
+### Bir kontrol
+
+Karakter oylaması pozisyonları bağımsız oyluyor, dolayısıyla dilbilgisine
+aykırı bir dizgi üretebilirdi. Üretmedi: altı stratejinin de her iki kümedeki
+tüm çıktıları geçerli plaka. Bu bir sınır değil, olsaydı hata olurdu.
