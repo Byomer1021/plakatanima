@@ -940,3 +940,65 @@ ikisi artık birebir aynı (0.030 / 0.038 / 0.083).
 
 Kayda geçsin: eldeki ağırlık **eski tanıma göre** seçildi. Sıralamanın
 değişmesi beklenmiyor ama doğrulanmadı.
+
+---
+
+## 19. Hız: planın manşet iddiası, ilk kez ölçüldü
+
+Başlangıçtaki plan "Jetson Orin Nano'da 30 FPS" diyordu. Donanım olmadığı için
+o iddia düşürüldü ve yerine "bulut GPU'da ölçüldü, uç cihaz ölçülmedi" yazıldı.
+Ama proje bugüne kadar hızı **hiçbir yerde** ölçmedi; "ne kadar hızlı"
+sorusuna verecek sayısı yoktu.
+
+`scripts/benchmark.py`, bu makinede (6 iş parçacığı, CPU), `maltepe.mkv`
+üzerinde:
+
+| adım | medyan | birim |
+|---|---|---|
+| YOLO araç tespiti | 57.65 ms | kare |
+| köşe modeli | 5.29 ms | araç |
+| dikleştirme (OpenCV) | 0.59 ms | araç |
+| tanıyıcı (CTC) | 5.20 ms | araç |
+| C++ kısıtlı çözüm | 1.76 ms | araç |
+
+Kare başına 1.40 araç genişlik filtresini geçiyor → **75.6 ms/kare, 13.2 FPS.**
+
+### İki ölçüm hatası, ikisi de sayıyı şişiriyordu
+
+**Videonun ilk 40 karesi alınmıştı.** 60 fps'te bu 0.7 saniye ve o anda yakın
+araç yok; genişlik filtresini geçen araç sayısı 0.00 çıktı, yani aşağı akış
+maliyeti sıfır göründü. Kareler artık video boyunca dağıtılıyor.
+
+**Araç sayısı YOLO'nun tüm tespitlerinden sayılmıştı** (3.84/kare). Oysa köşe
+ve tanıyıcı adımlarını yalnızca genişlik filtresini geçenler tetikliyor
+(1.40/kare). Filtresiz sayı kare maliyetini %60 fazla gösteriyordu.
+
+### Sayının anlamı, ham FPS'te değil işin gereğinde
+
+Kayıt 60 fps; her kareyi işlemek 16.7 ms ister, ölçülen 75.6 — **4.5 kat
+yavaş**. Ama plaka okuma her kareyi istemiyor. Bir araç kadrajda saniyelerce
+kalıyor ve 13.2 FPS'te bu **saniyede 13 işlenmiş kare** demek. Bölüm 17'de
+beş ve üzeri karesi olan plakaların hepsi doğru okunmuştu; bu hız onu
+fazlasıyla sağlıyor.
+
+Yani dürüst ifade şu: **kayıt hızında gerçek zamanlı değil, işin gerektirdiği
+hızda fazlasıyla yeterli.**
+
+### Darboğaz projenin kendi kodunda değil
+
+YOLO kare maliyetinin **%76'sı**. Projenin yazdığı üç model — köşe, tanıyıcı,
+kısıtlı çözümleyici — araç başına 12.8 ms, kare başına 17.9 ms. Faz 4'ün
+(TensorRT) hızlandıracağı yer hazır bir modelde.
+
+C++ çözümleyici ayrı bir süreç olarak çağrılıyor ve tek çağrıda 14.3 ms
+görünüyor; bunun neredeyse tamamı süreç başlatma. 200 örnekten hesaplanan saf
+çözüm süresi **1.76 ms**. Gerçek bir boru hattında kütüphane olarak
+bağlanacağı için geçerli olan ikincisi.
+
+### Sınırlar
+
+- Toplu işleme yok: her araç tek tek geçirildi. Yığınlamak araç başına
+  maliyeti düşürürdü; ölçülen en kötü hal.
+- Tek makine, tek kayıt, CPU. Başka donanım için sayı yok.
+- YOLO ölçümü `yolov8n` ile; daha büyük bir model daha yavaş, daha küçüğü
+  yok.

@@ -108,6 +108,7 @@ python scripts/calibrate.py                     # güven eğrisi
 python scripts/train_corners.py                 # köşe regresyonu
 python scripts/end_to_end.py                    # köşe hatasının bedeli
 python scripts/vote.py                          # zamansal oylama
+python scripts/benchmark.py                     # gecikme
 ```
 
 Eğitim **bulutta** yapılır. Yerel GTX 1080 ağır yük altında dört kez düştü;

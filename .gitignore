@@ -61,3 +61,7 @@ data/_*.jpg
 # Derlenmis ikili
 cpp/*.exe
 cpp/*.o
+
+runs/_kiyas/
+runs/_uctan_uca/
+runs/_tani/
