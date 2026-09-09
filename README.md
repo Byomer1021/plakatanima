@@ -28,7 +28,7 @@ düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-14).
 | faz | konu | durum |
 |---|---|---|
 | 0 | Sentetik üreteç + gerçek veri toplama | ✅ |
-| 1 | Tespit modeli (köşe regresyonlu) | ⏳ |
+| 1 | Köşe regresyonu | ✅ uçtan uca ölçüldü |
 | 2 | Tanıma modeli, CTC | ✅ eğitildi + gerçek veriyle ince ayar |
 | 3 | Kısıtlı çözümleme (C++) + güven kalibrasyonu | ✅ |
 | 4 | TensorRT FP16/INT8 | ⏳ bulut GPU'da |
@@ -105,6 +105,8 @@ g++ -O2 -std=c++17 -o cpp/decode.exe cpp/decode.cpp
 python scripts/export_logits.py && ./cpp/decode.exe
 python scripts/score_decoder.py                 # kısıtın kazancı
 python scripts/calibrate.py                     # güven eğrisi
+python scripts/train_corners.py                 # köşe regresyonu
+python scripts/end_to_end.py                    # köşe hatasının bedeli
 python scripts/vote.py                          # zamansal oylama
 ```
 

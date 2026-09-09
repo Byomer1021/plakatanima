@@ -830,3 +830,113 @@ Faz 5'in diğer iki parçası (C++ boru hattı, takip) yapılmadı.
 Karakter oylaması pozisyonları bağımsız oyluyor, dolayısıyla dilbilgisine
 aykırı bir dizgi üretebilirdi. Üretmedi: altı stratejinin de her iki kümedeki
 tüm çıktıları geçerli plaka. Bu bir sınır değil, olsaydı hata olurdu.
+
+---
+
+## 18. Faz 1: köşe modeli, ve otomatikleştirmenin ölçülemeyen bedeli
+
+Bölüm 10-17'deki her sayı "dikleştirilmiş kırpma verilmiş" varsayımıyla
+ölçüldü; o kırpmaları insan eliyle işaretlenmiş köşeler üretti. Bu bölüm o
+varsayımı kaldırıyor.
+
+`train_corners.py`: araç kırpmasından dört köşe. Gövde her köşe için bir ısı
+haritası üretiyor, uzamsal softmax'ın beklenen değeri koordinatı veriyor.
+Doğrudan 8 sayı regresyonu (global havuz → tam bağlı) konum bilgisini havuzda
+kaybediyor ve 566 örnekle zayıf genelliyor; beklenen değer ızgara
+çözünürlüğünün altında hassasiyet verebiliyor. 0.46M parametre, CPU'da 300
+epoch 44 dakika.
+
+Bölme tanıyıcıyla **aynı tohumdan**: rapor kümesindeki 34 plaka birebir aynı,
+yoksa uçtan uca karşılaştırma anlamsız olurdu.
+
+### Köşe hatası
+
+Rapor kümesinde, plaka genişliğinin oranı olarak: ortanca **0.030**, ortalama
+0.038, **%8.3'ü 0.05'i aşıyor**.
+
+### Asıl ölçüm: aşağı akış
+
+| ölçüt | elle köşe | model köşe |
+|---|---|---|
+| kırpma tam dizi | 0.815 | **0.720** |
+| karakter | 0.964 | 0.902 |
+| düzenleme | 0.280 | 0.771 |
+| PLAKA güven ağırlıklı oy | 0.647 (22/34) | 0.529 (18/34) |
+
+Ve kırılım, üreteç tasarımını aşağı akıştan doğruluyor:
+
+| köşe hatası | n | tam dizi |
+|---|---|---|
+| 0.00-0.03 | 78 | 0.782 |
+| 0.03-0.05 | 66 | 0.758 |
+| 0.05-0.10 | 7 | 0.286 |
+| >0.10 | 6 | 0.000 |
+
+Okuma **tam 0.05'te** çöküyor — üretecin `KOSE_HATASI = 0.05` ile modellediği
+eşik. Tanıyıcı eğitildiği bozulma aralığında dayanıklı, dışında değil. Bu,
+iyileştirme hedefini de belirliyor: ortalama köşe hatasını düşürmek değil,
+**eşiği aşan kırpma oranını** düşürmek.
+
+### Fark 4 plaka, ama şanstan ayrılamıyor
+
+22'ye karşı 18 net −4. Ayrık plakalara bakınca: **7 kayıp, 3 kazanç.**
+McNemar ile on ayrık plakanın yedisi bir yönde; iki yönlü p ≈ **0.34**. Bu
+örneklem farkı çözemiyor.
+
+Kırpma bazında ise fark gerçek ve ölçülü: 157 kırpmada tam dizi 0.815'ten
+0.720'ye. Yani bozulma var, plaka bazındaki oylama onun çoğunu yutuyor.
+
+### Kaybedilen yedi plakanın hepsi tek kareli
+
+| plaka | kare | köşe hatası | model okudu |
+|---|---|---|---|
+| 34KRK58 | 1 | 0.149 | 34Y3420 |
+| 52LC081 | 1 | 0.145 | 52V6677 |
+| 34GPN760 | 1 | 0.086 | 06DN760 |
+| 34RY8229 | 1 | 0.062 | 34PY8229 |
+| 34AEL236 | 1 | 0.030 | 34AEL230 |
+| 34EGN767 | 1 | 0.025 | 34EGN757 |
+| 34LTR416 | 1 | 0.021 | 34LTP416 |
+
+İkisi önemli:
+
+**Oylama köşe hatasını yutuyor, ama yalnızca yutacak kare varsa.** Yedi kaybın
+yedisi de tek kareli. Çok kareli plakalarda köşe hatası oylamada eriyor.
+
+**Son üçünde köşe hatası zaten düşük** (%2-3) ve okuma tek karakter kayıyor.
+Bu bir köşe arızası değil: tanıyıcı o kırpmalarda zaten sınırda ve küçük bir
+dikleştirme farkı deviriyor. Köşe modelini iyileştirmek bunları kurtarmaz.
+
+### Elle işaretleme altın standart değil
+
+Model **üç plakada elle işaretlemeyi geçti**. Elle işaretlenmiş köşeler
+doğru cevap değil, bir insanın işaretlemesi; dikleştirme kalitesi açısından
+model bazen daha iyi kadraj kuruyor. "Otomatikleştirmenin bedeli" çerçevesi
+bu yüzden olduğundan keskin görünüyor.
+
+### Üçüncü kez aynı seçim hatası
+
+`best.pt` önce **ortalama** köşe hatasına göre seçiliyordu. Ortalama birkaç
+felaket vakadan şişip epoch'lar arasında zıplıyor; ortanca 150 epoch boyunca
+düzenli düşüyordu (0.067 → 0.022). Ortalamaya göre epoch 50 seçilmişti, oysa
+epoch 150 ortancada 0.022'ye karşı 0.030 ve eşik üstü oranda 0.136'ya karşı
+0.205 ile belirgin daha iyiydi — uçtan uca bir plaka.
+
+Ölçüt artık **eşiği aşan kırpma oranı**, eşitlikte ortanca. Gerekçesi yukarıdaki
+kırılım: okuma orada çöküyor.
+
+Bu, projede üçüncü seçim ölçütü hatası. Öncekiler: `tam dizi`'nin 245 kırpmada
+üç kırpmalık çözünürlüğü (bölüm 11), düzenleme mesafesinin tam diziyle
+ayrışması (bölüm 12). Ortak yan: **seçim ölçütü önemsenen şeyle aynı
+olmadığında sessizce yanlış ağırlığı veriyor.**
+
+### İki betik aynı şeyi farklı ölçüyordu
+
+`train_corners.py` hatayı küçültülmüş (288×96) uzayda, `end_to_end.py`
+orijinal uzayda ölçüyordu. Yeniden boyutlandırma anizotropik (386×144 →
+288×96) olduğu için aynı küme için farklı sayı çıkıyordu: 0.070'e karşı 0.083.
+Dikleştirme orijinal uzayda yapıldığına göre anlamlı olan o; düzeltildi ve
+ikisi artık birebir aynı (0.030 / 0.038 / 0.083).
+
+Kayda geçsin: eldeki ağırlık **eski tanıma göre** seçildi. Sıralamanın
+değişmesi beklenmiyor ama doğrulanmadı.
