@@ -126,8 +126,22 @@ std::string greedy(const float* L, int T, int C) {
     return out;
 }
 
+// Cozumun kendisi ve GUVEN icin gereken ham sayilar.
+//
+// Guven neden iki sayi: mutlak olasilik tek basina yaniltici - uzun plaka
+// her zaman daha dusuk log olasilik alir, cunku daha cok carpan var. Ikinci
+// en iyi TAM plakaya olan fark (marj) uzunluktan bagimsiz ve "model bu
+// okumada ne kadar kararli" sorusuna daha dogrudan cevap veriyor.
+struct Sonuc {
+    std::string en_iyi;
+    double en_iyi_lp = -INFINITY;
+    std::string ikinci;
+    double ikinci_lp = -INFINITY;
+    bool tam = false;
+};
+
 // Kisitli CTC on ek isini aramasi.
-std::string kisitli(const float* L, int T, int C, int genislik, int aday) {
+Sonuc kisitli(const float* L, int T, int C, int genislik, int aday) {
     std::unordered_map<std::string, Olasilik> isin;
     isin[""].bos = 0.0;
 
@@ -187,19 +201,29 @@ std::string kisitli(const float* L, int T, int C, int genislik, int aday) {
         for (auto& x : liste) isin.emplace(std::move(x.first), x.second);
     }
 
-    // Yalnizca TAM plakalar aday; hicbiri yoksa en olasi on ek doner ve
-    // bu durum cagiran tarafta sayilabilsin diye bos degil eksik doner.
-    std::string en_iyi;
-    double en_p = -INFINITY;
+    // Yalnizca TAM plakalar aday. En iyi IKI tanesi aliniyor: marj guven
+    // sinyalinin asil tasiyicisi.
+    Sonuc r;
     for (const auto& [onek, o] : isin) {
         if (!tam_mi(onek)) continue;
-        if (o.toplam() > en_p) { en_p = o.toplam(); en_iyi = onek; }
+        double p = o.toplam();
+        if (p > r.en_iyi_lp) {
+            r.ikinci = r.en_iyi; r.ikinci_lp = r.en_iyi_lp;
+            r.en_iyi = onek; r.en_iyi_lp = p;
+        } else if (p > r.ikinci_lp) {
+            r.ikinci = onek; r.ikinci_lp = p;
+        }
     }
-    if (!en_iyi.empty()) return en_iyi;
+    if (!r.en_iyi.empty()) { r.tam = true; return r; }
 
+    // Hicbir tam plaka uretilemediyse en olasi on ek doner; guven dusuk
+    // isaretlenebilsin diye tam=false kaliyor.
     for (const auto& [onek, o] : isin)
-        if (o.toplam() > en_p) { en_p = o.toplam(); en_iyi = onek; }
-    return en_iyi;
+        if (o.toplam() > r.en_iyi_lp) {
+            r.en_iyi_lp = o.toplam();
+            r.en_iyi = onek;
+        }
+    return r;
 }
 
 }  // namespace
@@ -234,9 +258,12 @@ int main(int argc, char** argv) {
     for (int i = 0; i < n; i++) {
         const float* L = veri.data() + (size_t)i * T * C;
         std::string a = greedy(L, T, C);
-        std::string b = kisitli(L, T, C, genislik, aday);
-        if (!tam_mi(b)) eksik++;
-        g << i << '\t' << a << '\t' << b << '\n';
+        Sonuc r = kisitli(L, T, C, genislik, aday);
+        if (!r.tam) eksik++;
+        // indeks, greedy, kisitli, en_iyi_lp, ikinci, ikinci_lp
+        g << i << '\t' << a << '\t' << r.en_iyi << '\t' << r.en_iyi_lp
+          << '\t' << (r.ikinci.empty() ? "-" : r.ikinci) << '\t'
+          << r.ikinci_lp << '\n';
     }
     std::fprintf(stderr,
                  "%d ornek cozuldu (T=%d C=%d, isin %d, aday %d)\n"

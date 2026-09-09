@@ -30,7 +30,7 @@ düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-14).
 | 0 | Sentetik üreteç + gerçek veri toplama | ✅ |
 | 1 | Tespit modeli (köşe regresyonlu) | ⏳ |
 | 2 | Tanıma modeli, CTC | ✅ eğitildi + gerçek veriyle ince ayar |
-| 3 | Kısıtlı çözümleme (C++) | ✅ güven kalibrasyonu kaldı |
+| 3 | Kısıtlı çözümleme (C++) + güven kalibrasyonu | ✅ |
 | 4 | TensorRT FP16/INT8 | ⏳ bulut GPU'da |
 | 5 | C++ boru hattı, takip, zamansal oylama | ⏳ |
 | 6 | Uç cihaz ölçümleri | ❌ kapsam dışı — donanım yok |
@@ -104,6 +104,7 @@ python scripts/finetune.py                      # gerçek veriyle ince ayar
 g++ -O2 -std=c++17 -o cpp/decode.exe cpp/decode.cpp
 python scripts/export_logits.py && ./cpp/decode.exe
 python scripts/score_decoder.py                 # kısıtın kazancı
+python scripts/calibrate.py                     # güven eğrisi
 ```
 
 Eğitim **bulutta** yapılır. Yerel GTX 1080 ağır yük altında dört kez düştü;

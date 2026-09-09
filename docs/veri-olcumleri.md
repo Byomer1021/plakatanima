@@ -620,3 +620,73 @@ modelin *emin olmadığı* yerden geliyor.
 | yalnızca sentetik (3. koşu) | 4/34 |
 | + gerçek veriyle ince ayar | 18/34 |
 | + kısıtlı çözümleyici | **22/34** |
+
+---
+
+## 15. Güven kalibrasyonu
+
+Çözümleyici her kırpma için bir plaka veriyor ama "ne kadar eminim" demiyordu.
+Faz 5'in zamansal oylaması buna dayanacak: bir aracın 20 karesinden gelen 20
+okumayı eşit saymak, emin olunan okumayla tahmin yürütüleni aynı kefeye
+koymak olur.
+
+### İki sayı, biri neden yetmiyor
+
+Çözümleyici artık en iyi **iki** geçerli plakayı ve log olasılıklarını
+döndürüyor.
+
+- **marj** = en iyinin log olasılığı − ikincininki. Uzunluktan bağımsız.
+- **lp** = en iyinin kendi log olasılığı. Tek başına yanıltıcı: uzun plaka her
+  zaman daha düşük alır çünkü daha çok çarpan var. Marjla birlikte bilgi
+  taşıyor.
+
+Ham marj tek başına bile ayırıyor:
+
+| | rapor kümesi |
+|---|---|
+| doğru okumalarda ortanca marj | 6.27 |
+| yanlış okumalarda ortanca marj | 0.79 |
+| AUC | 0.947 |
+
+### Eğri ve ölçümü
+
+İki özellikten olasılığa lojistik regresyon, IRLS ile numpy'da — scipy ya da
+sklearn bağımlılığı eklemeye değmeyecek kadar küçük bir iş.
+
+Eğri **seçim** yarısına uyduruldu, kalitesi **rapor** yarısında ölçüldü.
+Eğitim kırpmaları kullanılamazdı: model onları %99.6 doğru okuyor, yani
+neredeyse hiç olumsuz örnek yok ve oradan uydurulan eğri sistematik olarak
+fazla emin çıkardı.
+
+| kova | n | tahmin | gözlenen | fark |
+|---|---|---|---|---|
+| 0.00-0.53 | 32 | 0.326 | 0.344 | +0.018 |
+| 0.53-0.87 | 31 | 0.719 | 0.774 | +0.055 |
+| 0.87-0.95 | 31 | 0.914 | 0.968 | +0.054 |
+| 0.95-0.98 | 31 | 0.963 | 1.000 | +0.037 |
+| 0.98-1.00 | 32 | 0.987 | 1.000 | +0.013 |
+
+ECE **0.035**. Farkların hepsi **artı**: eğri sistematik olarak *az* emin.
+Güvenli yön bu — abartan bir güven, Faz 5'te yanlış okumayı doğruların
+üstüne çıkarırdı.
+
+### Kullanımı
+
+| eşik | kapsam | kapsananların doğruluğu |
+|---|---|---|
+| — | 1.000 | 0.815 |
+| 0.70 | 0.701 | **0.982** |
+| 0.80 | 0.662 | 0.990 |
+| 0.95 | 0.389 | 1.000 |
+
+Eşik koymanın anlamı düşük güvenli okumayı **atmak**, Faz 5'te onu başka
+karelerin oyuyla değiştirmek üzere.
+
+### Sayıyı olduğundan kesin okumamak için
+
+Uydurma kümesindeki AUC **0.862**, rapor kümesindeki **0.950**. Normalde
+tersi beklenir — uydurulan küme iyimser çıkar. Sebep kümelerin farkı: rapor
+tarafında 70 kırpmalı tek bir kolay plaka var ve ayrım orada daha rahat.
+Doğru okuma "AUC 0.95" değil, "0.86-0.95 aralığında".
+
+Uydurma kümesi 88 kırpma. İki parametreli bir eğri için yeterli ama ince.
