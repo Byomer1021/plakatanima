@@ -38,10 +38,18 @@ SURUM UYUMU
 onnxruntime-gpu'nun PyPI surumu belli bir CUDA surumune bagli ve yanlis
 esleme SESSIZ dususe yol aciyor. 1.29 CUDA 13 istiyor; Kaggle'da CUDA 12
 var ve hem CUDA hem TensorRT saglayicisi yuklenemeden CPU'ya dusuyor.
-CUDA 12 icin surum sabitlenmeli.
+CUDA 12 icin surum sabitlenmeli. PyPI'da her surum numarasi YOK - 1.20.1
+diye bir surum yok, 1.20.2 var; yanlis numara verince pip once mevcut
+kurulumu kaldirip sonra basarisiz oluyor ve ortam bos kaliyor.
+
+Kurulumun TUTTUGUNU calistirmadan once dogrula:
+    import onnxruntime as ort
+    s = ort.InferenceSession("kose.onnx",
+        providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+    print(s.get_providers())      # CUDA burada gorunmeli
 
 Kullanim (Kaggle defterinde):
-    !pip install -q "onnxruntime-gpu==1.20.1"
+    !pip install -q "onnxruntime-gpu==1.20.2"
     !python trt_bench.py --paket /kaggle/input/<veri-seti-adi>
 
 Betik istenen saglayicinin gercekten yuklendigini dogruluyor; yuklenmezse
