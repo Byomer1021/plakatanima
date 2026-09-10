@@ -1586,3 +1586,107 @@ toplamak değil.
 Ve ölçülen şey yalnızca **iki model**. Boru hattının geri kalanı — JPEG
 çözme, dikleştirme, kısıtlı çözümleme — CPU'da kalıyor, ve kare maliyetinin
 %85'ini oluşturan YOLO bu ölçümün dışında.
+
+---
+
+## 25. YOLO'yu hızlandırmak, ve iki kez yanlış özet seçmek
+
+Bölüm 22'de YOLO kare maliyetinin **%85'iydi** ve o güne kadar bütün
+hızlandırma çalışmasının dışında kalmıştı. Aynı T4'te, aynı sağlayıcılarla
+ölçüldü. Girdi 960×960 mektuplu kutu, yığın 1'de sabit (modelin kendi
+kısıtı), 5 gerçek kare.
+
+| sağlayıcı | ms | hızlanma | tespit | kutu maks | kutu ort | puan maks |
+|---|---|---|---|---|---|---|
+| CPU | 181.59 | 1.00x | 163/163 | — | — | — |
+| CUDA | 16.03 | 11.33x | 163 | 0.00 | 0.000 | 0.0000 |
+| TensorRT FP32 | 9.90 | 18.34x | 163 | 0.00 | 0.000 | 0.0000 |
+| **TensorRT FP16** | **7.36** | **24.68x** | 163 | **0.54 px** | **0.022 px** | 0.0149 |
+
+### TensorRT'nin FP32'de değmesi model boyutuna bağlı
+
+Bölüm 24'te köşe ve tanıyıcı modellerinde TensorRT FP32 **hiçbir şey**
+kazandırmamıştı (CUDA 1.48 ms, TRT FP32 1.48 ms). YOLO'da CUDA'nın **1.6 katı**
+(16.03 → 9.90 ms).
+
+Fark parametre sayısında: 0.47M ve 1.07M'lik modeller GPU'da çekirdek
+başlatmayla sınırlı, 3.15M'lik YOLO değil. TensorRT'nin FP32'de sunduğu grafik
+birleştirme ve çekirdek seçimi ancak hesabın gerçekten baskın olduğu yerde
+karşılığını veriyor.
+
+**Ölçülmüş bir sınır, tahmin değil** — ve "TensorRT hızlandırır" cümlesinin tek
+başına neden yetersiz olduğunu gösteriyor.
+
+### Doğruluk kontrolünde iki kez yanlış özet
+
+FP16'nın ham çıktı farkı **2.45e+01** çıktı; diğer sağlayıcılarda 2.6e-03.
+Dört büyüklük mertebesi. Çıktının ilk dört satırı piksel cinsinden kutu
+koordinatı olduğu için bu, 24.5 piksellik bir kayma gibi göründü.
+
+İlk sürümde özet olarak **tespit sayısı** seçilmişti ve betikte şu cümle
+yazılıydı: *"sayının değişmemesi FP16'nın tespitleri kaydırmadığını
+söylüyor"*. **Bu cümle yanlıştı** — sayım konumu ölçmüyor.
+
+Ama ham maksimum da yanlış özetti, ters yönde. 18900 çapanın büyük çoğunluğu
+arka plan ve oradaki kutu değerleri zaten anlamsız; maksimumu onlar domine
+ediyor.
+
+Doğru sayı ikisi de değil: **referansın tespit ettiği çapalarda** kutu kayması.
+Maskelenince:
+
+| | kutu maks | kutu ort |
+|---|---|---|
+| CUDA | 0.00 px | 0.000 px |
+| TRT FP32 | 0.00 px | 0.000 px |
+| TRT FP16 | 0.54 px | **0.022 px** |
+
+CUDA'nın ham farkı 3.48e-03'tü ama gerçek tespitlerde **tam sıfır** — ham
+maksimumun arka plandan geldiğinin doğrudan kanıtı.
+
+FP16'nın 0.022 piksellik ortalama kayması, 240-800 piksel genişliğindeki bir
+araç kutusunun **binde birinden az**. Aşağı akışta hiçbir şeyi değiştirmiyor:
+bölüm 18'de okumanın çöktüğü eşik, plaka genişliğinin %5'i (88 pikselllik bir
+plakada ~4 piksel).
+
+**Ders özetleme hakkında.** Aynı kontrolde hem fazla iyimser (sayım) hem fazla
+karamsar (ham maksimum) okuma yapıldı. İkisi de mevcut ve doğru sayılardı;
+yanlış olan hangisinin sonucu temsil ettiğine karar vermekti. Bölüm 24'te de
+aynısı olmuştu — betiğin stderr'i "CPU'ya düşülüyor" derken tablosu "TensorRT
+FP16" yazıyordu.
+
+Ölçüm disiplininin görünmeyen kısmı sayıyı üretmek değil, **hangi sayının özet
+olacağını seçmek.**
+
+### Kare bütçesi — ve neden birleştirilmiyor
+
+T4'te GPU'ya düşen iş, kare başına:
+
+```
+YOLO (FP16)                       7.36 ms
++ 1.55 arac x (kose + taniyici)   1.57 ms      (1.55 x 1.01)
+                                  ─────────
+                                  8.93 ms
+```
+
+Ama **buradan bir FPS sayısı çıkarılmıyor.** Boru hattının geri kalanı — JPEG
+çözme, dikleştirme, kısıtlı çözümleme — o makinede hiç ölçülmedi, ve bölüm
+22'nin yerel sayılarıyla toplamak iki farklı makineyi karıştırmak olur. T4'ün
+CPU'su bu makineninkinden yavaş; bölüm 24'te ölçüldü.
+
+Söylenebilecek olan: **GPU'ya taşınan iki adım, kare başına 8.93 ms.** Yerelde
+aynı iki adım 97.84 + 1.55 × 5.20 = 105.9 ms'ydi.
+
+### Değişkenlik
+
+TensorRT FP32, küçük modellerde iki ayrı koşuda **1.48 ms** ve **3.22 ms**
+verdi — iki kattan fazla fark, aynı makinede, önbellekten gelen aynı motorla.
+CUDA hızlanması üç koşuda 2.94x, 3.92x, 3.74x.
+
+Kiralık bulut donanımı paylaşımlı. Bu bölümdeki YOLO sayıları **tek koşu** ve
+aynı belirsizliği taşıyor; 24.68x'i üç haneli kesinlikle okumak yanlış olur.
+
+### Sınır
+
+Yine bir **T4 sayısı**. Planın "Jetson Orin Nano'da 30 FPS" iddiasının yerine
+geçmiyor; onun dürüst karşılığı baştan beri "bulut GPU'da ölçüldü, uç cihaz
+ölçülmedi".
