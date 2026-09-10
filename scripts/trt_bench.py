@@ -48,6 +48,16 @@ Kurulumun TUTTUGUNU calistirmadan once dogrula:
         providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
     print(s.get_providers())      # CUDA burada gorunmeli
 
+TensorRT SURUMU AYRICA ESLESMELI
+-------------------------------
+`pip install tensorrt` TensorRT 11 kuruyor (libnvinfer.so.11); ORT 1.20.2
+libnvinfer.so.10 ariyor. `tensorrt==10.5.0` gerekiyor. Ve LD_LIBRARY_PATH
+SUREC BASLAMADAN ayarlanmali - hucre icinde os.environ ile degistirmek
+ise yaramiyor, dinamik yukleyici onu baslangicta okuyor:
+
+    !pip install -q "onnxruntime-gpu==1.20.2" "tensorrt==10.5.0"
+    !LD_LIBRARY_PATH=<site-packages>/tensorrt_libs:$LD_LIBRARY_PATH       python trt_bench.py --paket <veri-seti>
+
 Kullanim (Kaggle defterinde):
     !pip install -q "onnxruntime-gpu==1.20.2"
     !python trt_bench.py --paket /kaggle/input/<veri-seti-adi>

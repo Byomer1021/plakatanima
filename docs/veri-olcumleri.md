@@ -1493,40 +1493,96 @@ Düzeltme: oturum kurulduktan sonra `get_providers()` okunuyor, istenen
 sağlayıcı gerçekten yüklenmediyse satır **tabloya girmiyor**. Ortam da
 (GPU, sürücü, CUDA sürümü) baştan basılıyor.
 
-### İkinci koşu: gerçek ölçüm
+### Sonuç
 
-Tesla T4, sürücü 580.159.04, CUDA 12.8, `onnxruntime-gpu` 1.20.2:
+Tesla T4, sürücü 580.159.04, CUDA 12.8, `onnxruntime-gpu` 1.20.2,
+`tensorrt` 10.5.0:
 
 | sağlayıcı | köşe | tanıyıcı | toplam | hızlanma | plaka aynı | marj farkı |
 |---|---|---|---|---|---|---|
-| CPU | 3.14 | 2.23 | 5.38 ms | 1.00x | 157/157 | 0.0000 |
-| **CUDA** | 0.95 | 0.88 | **1.83 ms** | **2.94x** | 157/157 | **0.0000** |
+| CPU | 3.19 | 2.28 | 5.47 ms | 1.00x | 157/157 | 0.0000 |
+| CUDA | 0.77 | 0.69 | 1.46 ms | 3.74x | 157/157 | 0.0000 |
+| TensorRT FP32 | 0.89 | 0.59 | 1.48 ms | 3.69x | 157/157 | 0.0000 |
+| **TensorRT FP16** | 0.41 | 0.37 | **0.79 ms** | **6.94x** | 157/157 | **0.0120** |
 
-**GPU'ya taşımak okumayı bozmuyor.** 157 kırpmanın hepsinde aynı plaka, ve
-marj farkı **tam sıfır** — yani bölüm 15 ve 21'deki kalibrasyon eşikleri
-olduğu gibi geçerli.
+### TensorRT FP32 hiçbir şey kazandırmıyor
 
-Bu hiç garanti değildi. Bölüm 23'te C++ yolunun aynı plakayı okurken bile
-güveni ne kadar oynattığı ölçülmüştü: 139 kırpmanın 85'inde 0.05'ten fazla.
-Aradaki fark şu — C++ ön işlemeyi değiştirmişti (INTER_CUBIC yerine iki
-doğrusal), CUDA ise aynı hesabı yapıyor.
+CUDA 1.46 ms, TensorRT FP32 1.48 ms. Aradaki fark gürültü. TensorRT'nin
+FP32'de sunduğu şey grafik birleştirme ve çekirdek seçimi; bu modeller
+(0.47M ve 1.07M parametre) o optimizasyonların fark yaratamayacağı kadar
+küçük ve GPU'da zaten hesapla değil çekirdek başlatmayla sınırlılar.
 
-### TensorRT ölçülmedi
+**Kazancın tamamı FP16'dan geliyor** — 1.46'dan 0.79 ms'ye, yani Tensor
+Core'lardan. Tek başına TensorRT kurmak boşa emek olurdu; işe yarayan şey
+yarım hassasiyet.
 
-`libonnxruntime_providers_tensorrt.so` yüklenemedi: `libnvinfer.so.10` Kaggle
-imajında yok. Betik bunu artık açıkça söylüyor ve o satırları tabloya
-koymuyor.
+### Doğruluk bozulmadı, ama marj ilk kez kımıldadı
 
-Yani **Faz 4 CUDA'ya kadar ölçüldü, TensorRT kısmı ortam kurulumunda kaldı.**
-Bu bir sonuç değil, eksik; öyle yazılıyor.
+Dört sağlayıcının dördünde de **157/157 plaka aynı**. FP16 okumayı bozmuyor.
 
-### Sayıların karıştırılmaması gereken yeri
+Marj farkı ise ilk kez sıfır değil: **0.0120**. İzlenmesi gereken sayı buydu,
+çünkü güven marja dayanıyor. Etkisi:
 
-T4'teki CPU satırı 5.38 ms, bölüm 22'de yerel makinede aynı iki model için
-ölçülen 4.70 ms'ydi. Yani Kaggle'ın CPU'su bu makineninkinden yavaş.
-**2.94x hızlanma makine içi bir karşılaştırma ve geçerli**; mutlak sayıları
-bölüm 22'nin sayılarıyla toplamak değil.
+```
+marj kayması        0.0120
+× marj katsayısı    0.517        (bölüm 15'in kalibrasyonu)
+= logit kayması     0.0062
+× sigmoid türevi    ≤ 0.25
+= güven kayması     ≤ 0.0016
+```
 
-Ve her zamanki sınır: bu bir **T4 sayısı**. Planın "Jetson Orin Nano'da 30
-FPS" iddiasının yerine geçmiyor; onun dürüst karşılığı baştan beri "bulut
-GPU'da ölçüldü, uç cihaz ölçülmedi".
+Bölüm 23'te C++ yolu güveni ortanca **0.0785** oynatmıştı — 51 kat fazla.
+0.0016'lık bir kayma, ancak güveni tam eşiğin 0.0016 altında olan bir kırpma
+varsa sonucu değiştirir. **Eşikler (güven 0.70, varlık 0.42) geçerliliğini
+koruyor.**
+
+Bu, kontrolün gereksiz olduğu anlamına gelmiyor: sayı sıfırdan çıktı ve
+tahmin edilen yönde çıktı. FP16 yerine INT8'e inilseydi aynı hesap çok daha
+büyük bir kayma verebilirdi ve o zaman kalibrasyonun yeniden uydurulması
+gerekirdi.
+
+### Motor derleme maliyeti
+
+| | ilk çağrı |
+|---|---|
+| CUDA | 0.42 sn |
+| TensorRT FP32 | 18.2 sn |
+| TensorRT FP16 | **58.7 sn** |
+
+Bir kerelik ve önbelleğe yazılıyor, ama dağıtımda hesaba katılması gereken
+bir sayı: FP16 motorunu derlemek bir dakika sürüyor.
+
+### Ölçüm iki kez tekrarlandı ve aynı çıkmadı
+
+CUDA hızlanması üç ayrı koşuda **2.94x, 3.92x, 3.74x**. Aynı makine, aynı
+model, aynı girdi. Kiralık bulut donanımı paylaşımlı ve yük komşulara göre
+değişiyor.
+
+Dolayısıyla dürüst ifade **"CUDA 3-4 kat"**, üç haneli tek bir sayı değil.
+FP16'nın 6.94x'i tek ölçüm; aynı yayılım varsayılırsa **6-7 kat bandı**.
+
+### Kurulumda iki tuzak
+
+**Sürüm eşlemesi.** `onnxruntime-gpu` 1.29 CUDA 13 istiyor, Kaggle'da 12 var.
+1.20.2 gerekti. Ve `pip install tensorrt` TensorRT **11** kuruyor
+(`libnvinfer.so.11`), ORT 1.20.2 ise **`libnvinfer.so.10`** arıyor;
+`tensorrt==10.5.0` gerekti.
+
+**`LD_LIBRARY_PATH` süreç başlamadan ayarlanmalı.** Hücre içinde
+`os.environ` ile değiştirmek işe yaramıyor — dinamik yükleyici onu süreç
+başlangıcında okuyor.
+
+### Sınırlar
+
+Bu bir **T4 sayısı**. Planın "Jetson Orin Nano'da 30 FPS" iddiasının yerine
+geçmiyor; onun dürüst karşılığı baştan beri "bulut GPU'da ölçüldü, uç cihaz
+ölçülmedi".
+
+T4'teki CPU satırı 5.47 ms, bölüm 22'de yerel makinede aynı iki model için
+ölçülen 4.70 ms'ydi — Kaggle'ın CPU'su bu makineninkinden yavaş. Hızlanma
+oranları makine içi ve geçerli; mutlak sayıları bölüm 22'nin sayılarıyla
+toplamak değil.
+
+Ve ölçülen şey yalnızca **iki model**. Boru hattının geri kalanı — JPEG
+çözme, dikleştirme, kısıtlı çözümleme — CPU'da kalıyor, ve kare maliyetinin
+%85'ini oluşturan YOLO bu ölçümün dışında.

@@ -31,7 +31,7 @@ düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-14).
 | 1 | Köşe regresyonu + kabul etme kapısı | ✅ uçtan uca ölçüldü |
 | 2 | Tanıma modeli, CTC | ✅ eğitildi + gerçek veriyle ince ayar |
 | 3 | Kısıtlı çözümleme (C++) + güven kalibrasyonu | ✅ |
-| 4 | ONNX + CUDA ölçüldü (T4, 2.94x) ✅ · TensorRT ⏳ ortam | 🔶 |
+| 4 | ONNX + TensorRT FP16 (T4: 6.9x, okuma bozulmadan) | ✅ |
 | 5 | Zamansal oylama + ByteTrack takibi ✅ · C++ boru hattı ⏳ | 🔶 |
 | 6 | Uç cihaz ölçümleri | ❌ kapsam dışı — donanım yok |
 
