@@ -141,7 +141,9 @@ def test_cpp_dilbilgisi_ayni_seyi_soyluyor():
                     cikti.read_text(encoding="utf-8").splitlines() if s.strip()]
 
     assert len(satirlar) == len(ornekler)
-    for (_, greedy, kisitli), beklenen in zip(satirlar, ornekler):
+    # decode.exe satiri: indeks, greedy, kisitli, en_iyi_lp, ikinci, ikinci_lp
+    # Guven sutunlari sonradan eklendi; ilk uc alan alinarak sabit tutuluyor.
+    for (_, greedy, kisitli, *_kalan), beklenen in zip(satirlar, ornekler):
         assert greedy == beklenen, f"C++ greedy: {greedy} != {beklenen}"
         assert kisitli == beklenen, \
             (f"C++ dilbilgisi '{beklenen}' plakasini reddetti "
