@@ -1446,3 +1446,87 @@ yavaş olurdu, ve orada kazanç gerçekti. İşe yaramayan şey, iyi optimize
 edilmiş bir kütüphanenin yaptığı işi elle yeniden yazmak.
 
 Ölçülmeseydi bunun tersi de aynı derecede inandırıcı görünürdü.
+
+---
+
+## 24. GPU ölçümü, ve dört satırı da CPU olan bir tablo
+
+Faz 4 GPU istiyor; bu makinedeki GTX 1080 ağır yük altında dört kez düştü ve
+TensorRT motor derlemesi tam da o yük. Ölçüm Kaggle T4'te yapıldı.
+
+Ham TensorRT API'si yerine ONNX Runtime'ın `TensorrtExecutionProvider`'ı
+seçildi: altta TensorRT çalışıyor, motor derlemesini kendisi yapıyor, ve
+elde zaten doğrulanmış ONNX dosyaları var (bölüm 22).
+
+Pakete görüntü konmadı — ön işlenmiş tensörler, iki model ve CPU'da üretilmiş
+referans çıktılar. Bu, JPEG çözmeyi ve yeniden boyutlandırmayı GPU ölçümünün
+dışında tutuyor, ve "FP16 aynı plakayı okuyor mu" sorusu bulutta hiç görüntü
+olmadan cevaplanabiliyor. 61.5 MB, veri seti private.
+
+### İlk koşu: dört satırın dördü de CPU'ydu
+
+İlk çalıştırma şu tabloyu üretti:
+
+```
+CPU              6.08 ms   1.00x   157/157
+CUDA             5.94 ms   1.02x   157/157
+TensorRT FP32    5.91 ms   1.03x   157/157
+TensorRT FP16    6.26 ms   0.97x   157/157
+```
+
+**Dördü de aynı CPU yoluydu.** `onnxruntime-gpu` 1.29 CUDA 13 istiyor, Kaggle'da
+12 var; ne CUDA ne TensorRT kütüphanelerini yükleyebildi ve ORT sessizce
+zincirde aşağı düştü. `get_available_providers()` ikisini de listeliyordu,
+çünkü `.so` dosyaları diskte — yüklenip yüklenemedikleri ayrı mesele.
+
+**Sayıların makul görünmesi işin kötü tarafı.** 1.02x ve 1.03x için hazır bir
+açıklama vardı: "modeller küçük, GPU'da çekirdek başlatmayla sınırlı".
+"157/157 plaka aynı" da bedavaydı — aynı yol dört kez. Betiğin kendi stderr'i
+*"Falling back to CPUExecutionProvider"* diye yazarken özet tablosu *TensorRT
+FP16* diyordu.
+
+Bölüm 19'daki `imgsz=640` hatasıyla aynı sınıf: sayı çıktı, beklentiye uydu,
+başka bir şeyi ölçtü. Zor olan yanlış sayıyı fark etmek değil, **beklentiye
+uyan** yanlış sayıyı fark etmek.
+
+Düzeltme: oturum kurulduktan sonra `get_providers()` okunuyor, istenen
+sağlayıcı gerçekten yüklenmediyse satır **tabloya girmiyor**. Ortam da
+(GPU, sürücü, CUDA sürümü) baştan basılıyor.
+
+### İkinci koşu: gerçek ölçüm
+
+Tesla T4, sürücü 580.159.04, CUDA 12.8, `onnxruntime-gpu` 1.20.2:
+
+| sağlayıcı | köşe | tanıyıcı | toplam | hızlanma | plaka aynı | marj farkı |
+|---|---|---|---|---|---|---|
+| CPU | 3.14 | 2.23 | 5.38 ms | 1.00x | 157/157 | 0.0000 |
+| **CUDA** | 0.95 | 0.88 | **1.83 ms** | **2.94x** | 157/157 | **0.0000** |
+
+**GPU'ya taşımak okumayı bozmuyor.** 157 kırpmanın hepsinde aynı plaka, ve
+marj farkı **tam sıfır** — yani bölüm 15 ve 21'deki kalibrasyon eşikleri
+olduğu gibi geçerli.
+
+Bu hiç garanti değildi. Bölüm 23'te C++ yolunun aynı plakayı okurken bile
+güveni ne kadar oynattığı ölçülmüştü: 139 kırpmanın 85'inde 0.05'ten fazla.
+Aradaki fark şu — C++ ön işlemeyi değiştirmişti (INTER_CUBIC yerine iki
+doğrusal), CUDA ise aynı hesabı yapıyor.
+
+### TensorRT ölçülmedi
+
+`libonnxruntime_providers_tensorrt.so` yüklenemedi: `libnvinfer.so.10` Kaggle
+imajında yok. Betik bunu artık açıkça söylüyor ve o satırları tabloya
+koymuyor.
+
+Yani **Faz 4 CUDA'ya kadar ölçüldü, TensorRT kısmı ortam kurulumunda kaldı.**
+Bu bir sonuç değil, eksik; öyle yazılıyor.
+
+### Sayıların karıştırılmaması gereken yeri
+
+T4'teki CPU satırı 5.38 ms, bölüm 22'de yerel makinede aynı iki model için
+ölçülen 4.70 ms'ydi. Yani Kaggle'ın CPU'su bu makineninkinden yavaş.
+**2.94x hızlanma makine içi bir karşılaştırma ve geçerli**; mutlak sayıları
+bölüm 22'nin sayılarıyla toplamak değil.
+
+Ve her zamanki sınır: bu bir **T4 sayısı**. Planın "Jetson Orin Nano'da 30
+FPS" iddiasının yerine geçmiyor; onun dürüst karşılığı baştan beri "bulut
+GPU'da ölçüldü, uç cihaz ölçülmedi".
