@@ -261,26 +261,55 @@ def main(argv: list[str] | None = None) -> int:
             g1 = {"images": y_girdi[:1]}
             ms = sure(lambda: ys.run(None, g1), tekrar=20, isinma=5)
             d = float(np.abs(cikti - y_ref).max())
-            # Tespit sayisi: 84 satirin ilk 4'u kutu, kalani sinif puani.
-            def kutular(z, esik=0.25):
-                puan = z[:, 4:, :].max(axis=1)
-                return int((puan > esik).sum())
-            n_ref, n_bu = kutular(y_ref), kutular(cikti)
-            y_sonuc.append((ad, ms, d, n_ref, n_bu, ilk))
-            print(f"--- {ad:<16} {ms:>7.2f} ms   ham fark {d:.2e}   "
-                  f"tespit {n_bu}/{n_ref}   (ilk cagri {ilk:.1f} sn)",
+
+            # Cikti (N, 84, 18900): ilk 4 satir kutu (cx, cy, w, h - PIKSEL,
+            # 0-960), kalan 80 sinif puani (0-1).
+            #
+            # Tespit SAYISI yeterli bir kontrol degil ve bu bir kez
+            # yanlis yazildi: "sayi degismediyse FP16 tespitleri
+            # kaydirmadi" cumlesi yanlisti. Sayim KONUMU olcmuyor. Ve
+            # ham farkin maksimumu da yaniltici: 18900 capanin cogu arka
+            # plan ve oradaki sacma kutu degerleri maksimuma giriyor.
+            #
+            # Dogru kontrol: REFERANSIN tespit ettigi capalarda kutu ne
+            # kadar oynadi. Yalnizca orada oynama urunu etkiliyor.
+            def olc_kutu(ref, test, esik=0.25):
+                puan_r = ref[:, 4:, :].max(axis=1)          # (N, 18900)
+                m = puan_r > esik
+                n_r = int(m.sum())
+                n_t = int((test[:, 4:, :].max(axis=1) > esik).sum())
+                if n_r == 0:
+                    return n_r, n_t, 0.0, 0.0, 0.0
+                # (N, 4, A) -> secili capalarda kutu farki, piksel
+                fark = np.abs(ref[:, :4, :] - test[:, :4, :])   # (N, 4, A)
+                sec = fark.transpose(0, 2, 1)[m]               # (K, 4)
+                puan_fark = np.abs(puan_r - test[:, 4:, :].max(axis=1))[m]
+                return (n_r, n_t, float(sec.max()), float(sec.mean()),
+                        float(puan_fark.max()))
+
+            n_ref, n_bu, kutu_maks, kutu_ort, puan_maks = olc_kutu(y_ref, cikti)
+            y_sonuc.append((ad, ms, d, n_ref, n_bu, ilk, kutu_maks, kutu_ort,
+                            puan_maks))
+            print(f"--- {ad:<16} {ms:>7.2f} ms   tespit {n_bu}/{n_ref}   "
+                  f"kutu kaymasi maks {kutu_maks:.2f} px ort {kutu_ort:.3f} px"
+                  f"   puan farki {puan_maks:.4f}   (ilk {ilk:.1f} sn)",
                   flush=True)
         if y_sonuc:
             taban_y = y_sonuc[0][1]
-            print(f"\n{'saglayici':<16}{'ms':>9}{'hizlanma':>10}"
-                  f"{'ham fark':>12}{'tespit':>10}")
-            print("-" * 57)
-            for ad, ms, d, nr, nb, _ in y_sonuc:
-                print(f"{ad:<16}{ms:>9.2f}{taban_y/ms:>9.2f}x{d:>12.2e}"
-                      f"{f'{nb}/{nr}':>10}")
-            print("\n'tespit' 0.25 esigi ustunde kalan cikti hucresi sayisi -")
-            print("NMS oncesi. Sayinin degismemesi FP16'nin tespitleri")
-            print("kaydirmadigini soyluyor; kesin kutu karsilastirmasi degil.")
+            print(f"\n{'saglayici':<16}{'ms':>9}{'hizlanma':>10}{'tespit':>10}"
+                  f"{'kutu maks':>11}{'kutu ort':>10}{'puan maks':>11}")
+            print("-" * 78)
+            for ad, ms, d, nr, nb, _, km, ko, pm in y_sonuc:
+                print(f"{ad:<16}{ms:>9.2f}{taban_y/ms:>9.2f}x"
+                      f"{f'{nb}/{nr}':>10}{km:>11.2f}{ko:>10.3f}{pm:>11.4f}")
+            print("\n'tespit'   0.25 esigi ustunde kalan cikti hucresi (NMS oncesi)")
+            print("'kutu'     REFERANSIN tespit ettigi capalarda kutu kaymasi,")
+            print("           960 px'lik girdide piksel cinsinden")
+            print("'puan maks' ayni capalarda sinif puani farki")
+            print("\nTespit SAYISININ degismemesi kutularin yerinde kaldigini")
+            print("GOSTERMEZ - sayim konumu olcmuyor. Ilk surumde bu cumle")
+            print("yanlis yazilmisti ve FP16'nin 24.5 pikselllik ham farki")
+            print("'163/163 sorun yok' diye gecmisti.")
 
     if not sonuc:
         print("\nHicbir saglayici olculemedi.")
