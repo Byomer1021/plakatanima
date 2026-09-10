@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kare", type=int, default=60,
                     help="YOLO icin kac kare olculecek")
     ap.add_argument("--tekrar", type=int, default=30)
-    ap.add_argument("--kose", type=Path, default=ROOT / "runs" / "kose" / "best.pt")
+    ap.add_argument("--kose", type=Path, default=ROOT / "runs" / "varlik" / "best.pt")
     ap.add_argument("--taniyici", type=Path,
                     default=ROOT / "runs" / "ince" / "best.pt")
     ap.add_argument("--exe", type=Path, default=ROOT / "cpp" / "decode.exe")

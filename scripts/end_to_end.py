@@ -64,7 +64,8 @@ def kose_tahmin(model, kayitlar, cihaz):
                 olcekler.append((im, w, h, kose, metin))
             if not X:
                 continue
-            p = model(torch.from_numpy(np.stack(X)).to(cihaz)).cpu().numpy()
+            p, _ = model(torch.from_numpy(np.stack(X)).to(cihaz))
+            p = p.cpu().numpy()
             for tahmin, (im, w, h, kose, metin) in zip(p, olcekler):
                 t = tahmin * [w, h]
                 out.append((im, t.astype(np.float32), kose, metin))
@@ -151,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--crops", type=Path, default=ROOT / "data" / "crops")
     ap.add_argument("--etiket", type=Path, default=ROOT / "data" / "labels.jsonl")
-    ap.add_argument("--kose", type=Path, default=ROOT / "runs" / "kose" / "best.pt")
+    ap.add_argument("--kose", type=Path, default=ROOT / "runs" / "varlik" / "best.pt")
     ap.add_argument("--taniyici", type=Path,
                     default=ROOT / "runs" / "ince" / "best.pt")
     ap.add_argument("--egri", type=Path, default=ROOT / "runs" / "kalibrasyon.json")

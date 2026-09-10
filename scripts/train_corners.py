@@ -72,6 +72,53 @@ def kayitlari_oku(kok: Path, etiket: Path):
     return out
 
 
+def negatifleri_oku(kok: Path, etiket: Path):
+    """Okunur plaka ICERMEYEN kirpmalar: 'plakasiz' ve 'okunmaz'.
+
+    Bu 1308 kirpma bastan beri etiketliydi ve hicbir asamada kullanilmadi.
+    Bedeli bolum 20'de olculdu: modele hic "burada okunacak bir sey yok"
+    demesi ogretilmedigi icin, bos bir kirpmada kalipsi bir plaka uyduruyor
+    ve kisitli cozumleyici onu gecerli bir plakaya zorluyor. Uydurmalarin
+    guveni 1.000 cikiyor, gercek okumalarin 0.933 - yani guven bu arizayi
+    ayiramiyor, tersini gosteriyor.
+
+    'okunmaz' da negatif sayiliyor: plaka VAR ama okunmuyor. Boru hatti
+    acisindan ikisi ayni sey - okunamayan bir plakadan uretilen dizgi
+    uydurmadir.
+    """
+    out = []
+    for satir in etiket.read_text(encoding="utf-8").splitlines():
+        if not satir.strip():
+            continue
+        k = json.loads(satir)
+        if k.get("durum") not in ("plakasiz", "okunmaz"):
+            continue
+        yol = kok / k["dosya"]
+        if yol.is_file():
+            out.append(yol)
+    return out
+
+
+def negatif_bol(yollar, val_oran=0.25, seed=0):
+    """Negatifleri kaynak video + KARE BLOGUNA gore boler.
+
+    Kirpmalar iki saniye arayla ornekleendi ama ayni arac ardisik birkac
+    karede gecebiliyor. Rastgele bolmek ayni araci iki tarafa birden koyar
+    ve olculen ayirma gucu sisirir - pozitiflerde plakaya gore bolmenin
+    sebebi de buydu.
+    """
+    def anahtar(yol: Path) -> str:
+        govde = yol.stem.rsplit("_", 1)[0]          # maltepe_00878
+        video, kare = govde.rsplit("_", 1)
+        return f"{video}_{int(kare) // 25:04d}"     # ~50 saniyelik blok
+
+    gruplar = sorted({anahtar(y) for y in yollar})
+    random.Random(seed).shuffle(gruplar)
+    egitim_g = set(gruplar[:int(len(gruplar) * (1 - val_oran))])
+    return ([y for y in yollar if anahtar(y) in egitim_g],
+            [y for y in yollar if anahtar(y) not in egitim_g])
+
+
 def plakaya_gore_bol(kayitlar, val_oran=0.25, seed=0):
     """train_recognizer.gercek_bol ile AYNI mantik ve tohum."""
     plakalar = sorted({k[2] for k in kayitlar})
@@ -160,6 +207,16 @@ def model_kur():
                 blok(64, 96, 2),     # -> 12x36
                 blok(96, 128, 1))
             self.baslik = nn.Conv2d(128, 4, 1)   # kose basina bir isi haritasi
+            # Ikinci baslik: "bu kirpmada OKUNUR bir plaka var mi".
+            # Ayni govdeyi paylasiyor, yani cikarimda ek maliyeti yok.
+            # Marjdan BAGIMSIZ bir sinyal olmasi onemli: bolum 20'de guvenin
+            # bu arizayi ayiramadigi olculdu, cunku marj "alternatifler
+            # arasinda ne kadar eminim" sorusunu cevapliyor, "burada bir sey
+            # var mi" sorusunu degil.
+            self.varlik = nn.Sequential(
+                nn.Conv2d(128, 64, 1, bias=False),
+                nn.BatchNorm2d(64), nn.ReLU(inplace=True),
+                nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(64, 1))
             yy, xx = np.mgrid[0:IZGARA_Y, 0:IZGARA_G]
             self.register_buffer("gx", torch.tensor(
                 (xx + 0.5) / IZGARA_G, dtype=torch.float32).reshape(1, 1, -1))
@@ -167,12 +224,14 @@ def model_kur():
                 (yy + 0.5) / IZGARA_Y, dtype=torch.float32).reshape(1, 1, -1))
 
         def forward(self, x):
-            h = self.baslik(self.govde(x))            # (B, 4, Y, G)
+            g = self.govde(x)
+            h = self.baslik(g)                        # (B, 4, Y, G)
             B, K = h.shape[0], h.shape[1]
             p = h.reshape(B, K, -1).softmax(dim=-1)   # uzamsal softmax
             x_ = (p * self.gx).sum(-1)
             y_ = (p * self.gy).sum(-1)
-            return torch.stack([x_, y_], dim=-1)      # (B, 4, 2), 0-1 arasi
+            # (kose koordinatlari 0-1, varlik logiti)
+            return torch.stack([x_, y_], dim=-1), self.varlik(g).squeeze(-1)
 
     return Koseci()
 
@@ -201,7 +260,8 @@ def degerlendir(model, kayitlar, cihaz):
             if not X:
                 continue
             t = torch.from_numpy(np.stack(X)).to(cihaz)
-            p = model(t).cpu().numpy()
+            p, _ = model(t)
+            p = p.cpu().numpy()
             for tahmin, (hedef, (w, h)) in zip(p, H):
                 # Olcum orijinal goruntu uzayinda: yeniden boyutlandirma
                 # anizotropik (386x144 -> 288x96) oldugu icin kucultulmus
@@ -218,6 +278,45 @@ def degerlendir(model, kayitlar, cihaz):
             "piksel": float(np.mean(pikseller)),
             "kotu_005": float(np.mean(np.array(oranlar) > 0.05)),
             "n": len(oranlar)}
+
+
+def varlik_olc(model, pozitif, negatif, cihaz):
+    """Varlik basligi okunur plakayi okunmayandan ayirabiliyor mu.
+
+    AUC: rastgele bir pozitif, rastgele bir negatiften yuksek puan alir mi.
+    0.5 bilgi yok demek.
+    """
+    import torch
+    model.eval()
+    puan, etiket = [], []
+    with torch.no_grad():
+        for kume, y in ((pozitif, 1.0), (negatif, 0.0)):
+            for i in range(0, len(kume), 32):
+                X = []
+                for kayit in kume[i:i + 32]:
+                    yol = kayit[0] if isinstance(kayit, tuple) else kayit
+                    im = cv2.imread(str(yol))
+                    if im is None:
+                        continue
+                    X.append(girdiye(cv2.resize(im, (GENISLIK, YUKSEKLIK),
+                                                interpolation=cv2.INTER_AREA)))
+                if not X:
+                    continue
+                _, logit = model(torch.from_numpy(np.stack(X)).to(cihaz))
+                puan.extend(logit.cpu().numpy().tolist())
+                etiket.extend([y] * len(X))
+    puan, etiket = np.array(puan), np.array(etiket)
+    n1 = etiket.sum()
+    n0 = len(etiket) - n1
+    if n1 == 0 or n0 == 0:
+        return {"auc": float("nan"), "n": len(etiket)}
+    sira = np.argsort(np.argsort(puan)) + 1
+    auc = float((sira[etiket == 1].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+    # Pozitiflerin %95'ini tutan esikte kac negatif geciyor
+    esik = np.quantile(puan[etiket == 1], 0.05)
+    return {"auc": auc, "n": len(etiket),
+            "negatif_sizinti": float((puan[etiket == 0] >= esik).mean()),
+            "esik": float(esik)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -247,15 +346,31 @@ def main(argv: list[str] | None = None) -> int:
     print(f"egitim {len(egitim):>4} kirpma / {len({k[2] for k in egitim}):>3} plaka")
     print(f"secim  {len(secim):>4} kirpma / {len({k[2] for k in secim}):>3} plaka")
     print(f"rapor  {len(rapor):>4} kirpma / {len({k[2] for k in rapor}):>3} plaka"
-          f"   (taniyicinin rapor kumesiyle ayni plakalar)\n")
+          f"   (taniyicinin rapor kumesiyle ayni plakalar)")
 
-    # Onbellek: 566 goruntu bellege sigar, her epoch diskten okumak bosuna.
+    negatifler = negatifleri_oku(args.crops, args.etiket)
+    n_egitim, n_dogrulama = negatif_bol(negatifler)
+    n_secim, n_rapor = n_dogrulama[::2], n_dogrulama[1::2]
+    print(f"\nnegatif (plakasiz + okunmaz): {len(negatifler)} kirpma")
+    print(f"  egitim {len(n_egitim)}, secim {len(n_secim)}, "
+          f"rapor {len(n_rapor)}   (kare bloguna gore bolundu)\n")
+
+    # Onbellek: goruntuler bellege sigar, her epoch diskten okumak bosuna.
+    # Negatiflerde kose hedefi YOK; None ile isaretleniyor ve kose kaybi
+    # onlarda hesaplanmiyor.
     onbellek = []
     for yol, kose, metin in egitim:
         im, k, _ = hazirla(yol, kose)
         if im is not None:
             onbellek.append((im, k))
-    print(f"{len(onbellek)} egitim goruntusu bellege alindi\n")
+    n_onbellek = []
+    for yol in n_egitim:
+        im = cv2.imread(str(yol))
+        if im is not None:
+            n_onbellek.append(cv2.resize(im, (GENISLIK, YUKSEKLIK),
+                                         interpolation=cv2.INTER_AREA))
+    print(f"{len(onbellek)} pozitif + {len(n_onbellek)} negatif "
+          f"goruntu bellege alindi\n")
 
     model = model_kur().to(cihaz)
     n_par = sum(p.numel() for p in model.parameters())
@@ -269,18 +384,41 @@ def main(argv: list[str] | None = None) -> int:
     basladi = time.perf_counter()
     for epoch in range(1, args.epoch + 1):
         model.train()
-        sira = list(range(len(onbellek)))
+        # Pozitif ve negatifler birlikte karistiriliyor. Negatif sayisi
+        # pozitifin iki kati; oranin kendisi VERININ orani ve degistirilmiyor:
+        # hasat edilen kirpmalarin %38'inde okunur plaka var, model o
+        # dagilimda calisacak.
+        sira = ([("p", j) for j in range(len(onbellek))]
+                + [("n", j) for j in range(len(n_onbellek))])
         rng.shuffle(sira)
         toplam = adim = 0
         for i in range(0, len(sira) - 1, args.yigin):
-            X, Y = [], []
-            for j in sira[i:i + args.yigin]:
-                im, k = artir(onbellek[j][0], onbellek[j][1], rng)
+            X, Y, M, E = [], [], [], []
+            for tur, j in sira[i:i + args.yigin]:
+                if tur == "p":
+                    im, k = artir(onbellek[j][0], onbellek[j][1], rng)
+                    Y.append(k / [GENISLIK, YUKSEKLIK])
+                    M.append(1.0)
+                    E.append(1.0)
+                else:
+                    im, _ = artir(n_onbellek[j],
+                                  np.zeros((4, 2), np.float32), rng)
+                    Y.append(np.zeros((4, 2), np.float32))
+                    M.append(0.0)      # kose kaybi maskeleniyor
+                    E.append(0.0)
                 X.append(girdiye(im))
-                Y.append(k / [GENISLIK, YUKSEKLIK])
             x = torch.from_numpy(np.stack(X)).to(cihaz)
             y = torch.from_numpy(np.stack(Y).astype(np.float32)).to(cihaz)
-            kayip = nn.functional.l1_loss(model(x), y)
+            m = torch.tensor(M, dtype=torch.float32, device=cihaz)
+            e = torch.tensor(E, dtype=torch.float32, device=cihaz)
+
+            kose_t, logit = model(x)
+            # Kose kaybi YALNIZCA pozitiflerde: negatifin kose hedefi yok.
+            kose_kayip = ((kose_t - y).abs().mean(dim=(1, 2)) * m).sum() \
+                / m.sum().clamp(min=1)
+            varlik_kayip = nn.functional.binary_cross_entropy_with_logits(
+                logit, e)
+            kayip = kose_kayip + varlik_kayip
             opt.zero_grad(set_to_none=True)
             kayip.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 5.0)
@@ -291,11 +429,14 @@ def main(argv: list[str] | None = None) -> int:
 
         if epoch % 5 == 0 or epoch == args.epoch:
             o = degerlendir(model, secim, cihaz)
+            v = varlik_olc(model, secim, n_secim, cihaz)
+            o = {**o, **{f"varlik_{k}": val for k, val in v.items()}}
             gecmis.append({"epoch": epoch, "kayip": toplam / max(1, adim), **o})
             print(f"epoch {epoch:>4}  kayip {toplam/max(1,adim):>7.4f}  "
                   f"ortanca {o['oran_ortanca']:>6.3f}  "
-                  f"ortalama {o['oran']:>6.3f}  "
-                  f">%5 olan {o['kotu_005']:>5.3f}  "
+                  f">%5 {o['kotu_005']:>5.3f}  "
+                  f"varlik AUC {v['auc']:>5.3f}  "
+                  f"sizinti {v['negatif_sizinti']:>5.3f}  "
                   f"{(time.perf_counter()-basladi)/60:>5.1f} dk", flush=True)
             durum = {"model": model.state_dict(), "girdi": [YUKSEKLIK, GENISLIK],
                      "epoch": epoch, **o}
@@ -322,6 +463,7 @@ def main(argv: list[str] | None = None) -> int:
     model.load_state_dict(torch.load(args.out / "best.pt", map_location=cihaz,
                                      weights_only=False)["model"])
     r = degerlendir(model, rapor, cihaz)
+    rv = varlik_olc(model, rapor, n_rapor, cihaz)
     print("\n" + "=" * 66)
     print(f"RAPOR KUMESI - hicbir karara girmedi ({r['n']} kirpma)")
     print("=" * 66)
@@ -334,6 +476,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n  Karsilastirma: uretec taniyiciyi KOSE_HATASI = 0.05 ile")
     print(f"  egitti. Bu esigin altindaki hata taniyicinin gordugu")
     print(f"  bozulma araliginda kaliyor; ustundeki gormedigi bolge.")
+    print(f"\n  VARLIK BASLIGI (okunur plaka var mi)")
+    print(f"    AUC                    {rv['auc']:.3f}   "
+          f"[0.5 = bilgi yok]")
+    print(f"    pozitiflerin %95'ini tutan esikte gecen negatif: "
+          f"{rv['negatif_sizinti']:.3f}")
+    print(f"    ({rv['n']} kirpma: {len(rapor)} pozitif, {len(n_rapor)} negatif)")
     print(f"\n  Asil sayi bu degil: python scripts/end_to_end.py")
     print(f"\nagirlik -> {args.out / 'best.pt'}")
     return 0

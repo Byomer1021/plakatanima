@@ -1127,3 +1127,118 @@ aracın izi bölünmüşse bu sayılara girmiyor.
 Uydurma tespiti de bir varsayım taşıyor: aynı plakayı dakikalarca arayla
 okuyan izlerin aynı araç olamayacağı. Bu güçlü bir varsayım ama kanıt değil;
 kesin ayrım ancak iz etiketleriyle yapılır.
+
+---
+
+## 21. Kabul etme: boru hattına "okuyamadım" demeyi öğretmek
+
+Bölüm 20'nin bulgusu: sistem, okunacak hiçbir şey olmayan kırpmalarda
+kalıplaşmış bir plaka uyduruyor ve bunu 1.000 güvenle yapıyor. Güven marja
+dayanıyor ve boş bir kırpmada rakip aday olmadığı için marj tavan yapıyor.
+Eksik olan veri değildi — 706 `plakasiz` + 602 `okunmaz` kırpma başından beri
+etiketliydi. Eksik olan **sorunun sorulmasıydı**.
+
+### İlk deneme: ortak gövde, iki başlık — başarısız
+
+Köşe modelinin gövdesine ikinci bir başlık eklendi ve 566 pozitif + 993
+negatifle birlikte eğitildi. **İki iş de bozuldu:**
+
+| | önce | ortak gövde |
+|---|---|---|
+| köşe hatası ortancası (rapor) | 0.030 | 0.062 |
+| köşe >%5 oranı (rapor) | **0.083** | **0.631** |
+| varlık AUC (rapor) | — | 0.740 |
+| varlık AUC (seçim) | — | epoch 55'te 0.960 → epoch 200'de 0.914 |
+
+Köşe eşik-aşma oranı yedi kat arttı. Muhtemel mekanizma BatchNorm: yığının
+%64'ü artık negatif ve normalleştirme istatistikleri köşe başlığının gördüğü
+dağılımı kaydırıyor. Ayrıca köşe kaybı her adımda yığının yalnızca
+%36'sından geliyor.
+
+Çok görevli öğrenme bedava değil ve bedeli burada ölçüldü.
+
+### İkinci deneme: dondurulmuş gövde — çalıştı
+
+Gövde ve köşe başlığı donduruldu, yalnızca varlık başlığı eğitildi. Köşe
+doğruluğuna zarar vermesi mümkün değil çünkü o ağırlıklar hiç güncellenmiyor.
+
+**Bir tuzak var ve `requires_grad = False` onu kapatmıyor:** `model.train()`
+çağırmak BatchNorm çalışma istatistiklerini günceller ve bu köşe doğruluğunu
+sessizce bozardı. Gövde ve köşe başlığı açıkça `eval()` kipinde tutuluyor.
+
+| | ortak gövde | dondurulmuş gövde |
+|---|---|---|
+| varlık AUC (rapor) | 0.740 | **0.889** |
+| köşe doğruluğu | bozuldu | **değişmedi** |
+
+Köşe regresyonu için öğrenilen öznitelikler "burada okunur plaka var mı"
+sorusunu cevaplamaya yetiyor. Ek çıkarım maliyeti: tek 1×1 evrişim ve global
+havuz.
+
+Uçtan uca sayılar dondurulmuş modelle **birebir aynı** çıktı (kırpma tam dizi
+0.720, plaka 18/34) — donmanın gerçekten koruduğunun doğrulaması.
+
+### Eşik seçim kümesinde belirlendi
+
+| tutulan pozitif | eşik | geçen negatif |
+|---|---|---|
+| %95 | 0.332 | 0.253 |
+| **%90** | **0.420** | **0.215** |
+| %85 | 0.476 | 0.184 |
+
+İşletme noktası **0.420**. Rapor kümesine ya da takip koşusuna bakarak
+seçilmedi; öyle yapılsaydı ölçüm kendi kendini doğrulardı.
+
+### Takip koşusunda sonuç
+
+Aynı 180 saniyelik kesit, aynı takip, tek fark varlık kapısı:
+
+| | kapısız | kapılı |
+|---|---|---|
+| geçen kırpma | 561 | 432 (−23%) |
+| zamansal **tutarlı** plaka | 83 | 62 (−25%) |
+| **imkânsız (uydurma) plaka** | 4 | **0** |
+| uydurma kırpma | 24 | **0** |
+| kirlilik oranı | 0.043 | **0.000** |
+
+Bu hacim kesmek değil, ayrım yapmak. Kapı kırpmaların %23'ünü eliyor ama
+uydurma kırpmaların %100'ünü. Elemenin ayrımsız olduğu varsayımı altında 24
+kırpmanın hepsinin gitme olasılığı 0.77²⁴ ≈ %0.2.
+
+### Bedeli gerçek, ve bir kalibrasyon açığı gösteriyor
+
+Tutarlı plakaların **dörtte biri** gidiyor. Eşik seçim kümesinde pozitiflerin
+%90'ını tutacak şekilde ayarlanmıştı; canlı akışta %75 tutuyor.
+
+Fark, etiketli pozitiflerin ne olduğundan geliyor: `build_queue.py`
+kırpmaları keskinliğe göre sıralıyor ve etiketleme oradan ilerledi. Yani
+"pozitif" kümesi keskinliğe göre **seçilmiş bir alt küme**, canlı akış ise
+tüm dağılım. Aynı eşik iki popülasyonda farklı davranıyor.
+
+Bu, bölüm 3'teki kesilmiş aralık hatasının bir akrabası: ölçüm doğru,
+genelleme yapılan popülasyon farklı.
+
+### Eşik ödünleşimi — betimleyici, seçim gerekçesi değil
+
+| varlık eşiği | tutarlı plaka | uydurma | kirlilik |
+|---|---|---|---|
+| 0.00 | 83 | 4 | 0.043 |
+| 0.20 | 66 | 0 | 0.000 |
+| 0.30 | 64 | 0 | 0.000 |
+| **0.42** | **62** | **0** | **0.000** |
+| 0.70 | 56 | 0 | 0.000 |
+
+Uydurmalar 0.20'de zaten bitiyor ve orada 66 plaka kalıyor. Bu tabloya bakıp
+0.20'yi seçmek değerlendirme kümesine göre ayar yapmak olurdu ve yapılmadı.
+Doğru yol, canlı akışa benzeyen ayrı bir doğrulama kümesinde eşiği belirlemek;
+o küme yok ve bu yazılmış bir eksik.
+
+### Bunun çözmediği şeyler
+
+- **Tanıyıcı hâlâ kabul edemiyor.** Kapı onun önünde duruyor; tanıyıcının
+  kendisi bir kırpmayı reddedemiyor. Kapıdan geçen bir çöp kırpma yine
+  uydurma üretir.
+- **Kapı araç kırpmasına bakıyor**, dikleştirilmiş plakaya değil. Plaka
+  gerçekten varken köşe modeli yanlış kadraj kurarsa kapı bunu göremez.
+- Kapının kendisi %21.5 negatif sızdırıyor (seçim kümesinde). Uydurmaların
+  hepsini elemesi bu kesitte oldu; genel bir garanti değil.

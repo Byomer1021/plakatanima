@@ -138,14 +138,17 @@ def oku(kayitlar, kose_yolu: Path, tan_yolu: Path, exe: Path, egri: Path,
     tm.load_state_dict(torch.load(tan_yolu, map_location=cihaz,
                                   weights_only=False)["model"])
 
-    matrisler = []
+    matrisler, varlik = [], []
     with torch.no_grad():
         for i in range(0, len(kayitlar), 32):
             parca = kayitlar[i:i + 32]
             X = [girdiye(cv2.resize(k[2], (K_GEN, K_YUK),
                                     interpolation=cv2.INTER_AREA))
                  for k in parca]
-            p = km(torch.from_numpy(np.stack(X))).numpy()
+            p, varlik_logit = km(torch.from_numpy(np.stack(X)))
+            p = p.numpy()
+            varlik.extend(
+                (1 / (1 + np.exp(-varlik_logit.numpy()))).tolist())
             kirpmalar = []
             for tahmin, (_, _, im) in zip(p, parca):
                 h, w = im.shape[:2]
@@ -178,7 +181,9 @@ def oku(kayitlar, kose_yolu: Path, tan_yolu: Path, exe: Path, egri: Path,
         marj = 30.0 if not np.isfinite(ikinci) else min(lp - ikinci, 30.0)
         z = w["sabit"] + w["marj"] * marj + w["lp"] * max(lp, -30.0)
         out.append((p[2], float(1 / (1 + np.exp(-np.clip(z, -30, 30))))))
-    return out
+    # Varlik puani MARJDAN BAGIMSIZ ikinci bir sinyal. Bolum 20'de guvenin
+    # tek basina uydurmayi ayiramadigi olculdu; bu onu kapatmak icin var.
+    return [(a_, b_, c_) for (a_, b_), c_ in zip(out, varlik)]
 
 
 #: Cozumleyici gecerli bir tam plaka uretemediginde en olasi ON EKI donuyor
@@ -211,9 +216,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--saniye", type=float, default=90.0)
     ap.add_argument("--atla", type=int, default=4,
                     help="her kaci bir islensin (60 fps'te 4 -> 15 fps)")
+    ap.add_argument("--varlik-esik", type=float, default=0.5,
+                    help="kose modelinin 'okunur plaka var' puani esigi")
     ap.add_argument("--esik", type=float, default=0.7,
                     help="guvenli okuma esigi; bolum 15'te %98.2 dogruluk")
-    ap.add_argument("--kose", type=Path, default=ROOT / "runs" / "kose" / "best.pt")
+    ap.add_argument("--kose", type=Path, default=ROOT / "runs" / "varlik" / "best.pt")
     ap.add_argument("--taniyici", type=Path,
                     default=ROOT / "runs" / "ince" / "best.pt")
     ap.add_argument("--exe", type=Path, default=ROOT / "cpp" / "decode.exe")
@@ -231,16 +238,17 @@ def main(argv: list[str] | None = None) -> int:
 
     iz = defaultdict(list)
     iz_kare = defaultdict(list)
-    for (iz_id, kare, _), (plaka, guven) in zip(kayitlar, okumalar):
-        iz[iz_id].append((plaka, guven))
+    for (iz_id, kare, _), (plaka, guven, varlik) in zip(kayitlar, okumalar):
+        iz[iz_id].append((plaka, guven, varlik))
         iz_kare[iz_id].append(kare)
 
     # Ham sonuclar saklaniyor: bu kosu dakikalar suruyor ve her analiz icin
     # yeniden calistirmak gereksiz. Ayrica tekrarlanabilir olsun.
     args.gecici.mkdir(parents=True, exist_ok=True)
     (args.gecici / "izler.json").write_text(json.dumps(
-        [{"iz": int(a_), "kare": int(b_), "plaka": c_, "guven": round(d_, 4)}
-         for (a_, b_, _), (c_, d_) in zip(kayitlar, okumalar)],
+        [{"iz": int(a_), "kare": int(b_), "plaka": c_, "guven": round(d_, 4),
+          "varlik": round(e_, 4)}
+         for (a_, b_, _), (c_, d_, e_) in zip(kayitlar, okumalar)],
         ensure_ascii=False), encoding="utf-8")
     print(f"ham sonuclar -> {args.gecici / 'izler.json'}\n")
 
@@ -253,14 +261,15 @@ def main(argv: list[str] | None = None) -> int:
     # Hasat edilen arac kirpmalarinin yalnizca %38'inde okunur plaka var
     # (811 'ok' / 2119 etiket). Kalanlarda okunacak bir sey yok ve
     # cozumleyici onek donuyor. Bunlari elemek kusur degil, isin tanimi.
-    tam = [(p, g) for p, g in okumalar if gecerli_plaka(p)]
+    tam = [(p, g) for p, g, _ in okumalar if gecerli_plaka(p)]
     print(f"  gecerli TAM plaka ureten kirpma: {len(tam)}/{len(okumalar)}"
           f"  (%{100*len(tam)/max(1,len(okumalar)):.0f})")
     print(f"  karsilastirma: etiketlemede kirpmalarin %38'inde okunur")
     print(f"  plaka vardi; bu oran ona yakin olmali\n")
 
-    guvenli_iz = {i: [x for x in v
-                      if x[1] >= args.esik and gecerli_plaka(x[0])]
+    guvenli_iz = {i: [(x[0], x[1]) for x in v
+                      if x[1] >= args.esik and gecerli_plaka(x[0])
+                      and x[2] >= args.varlik_esik]
                   for i, v in iz.items()}
     guvenli_iz = {i: v for i, v in guvenli_iz.items() if v}
     print(f"  gecerli VE guvenli (>={args.esik}) okuma ureten iz: "
