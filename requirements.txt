@@ -5,3 +5,7 @@ ultralytics>=8.3
 opencv-python>=4.9
 numpy>=1.26
 pillow>=10.0
+
+# Faz 4/5: cerceveden bagimsiz model + C++ tarafi
+onnx>=1.16
+onnxruntime>=1.18

@@ -945,6 +945,11 @@ değişmesi beklenmiyor ama doğrulanmadı.
 
 ## 19. Hız: planın manşet iddiası, ilk kez ölçüldü
 
+> **Düzeltme (bölüm 22):** Aşağıdaki YOLO süresi `imgsz=640` ile
+> ölçülmüş, oysa boru hattı 960 kullanıyor. Doğrusu 57.65 değil
+> **97.84 ms**, kare başına 75.6 değil **115.4 ms**, yani 13.2 değil
+> **8.7 FPS**. Sonuç cümlesi değişmiyor, sayılar değişiyor.
+
 Başlangıçtaki plan "Jetson Orin Nano'da 30 FPS" diyordu. Donanım olmadığı için
 o iddia düşürüldü ve yerine "bulut GPU'da ölçüldü, uç cihaz ölçülmedi" yazıldı.
 Ama proje bugüne kadar hızı **hiçbir yerde** ölçmedi; "ne kadar hızlı"
@@ -1242,3 +1247,87 @@ o küme yok ve bu yazılmış bir eksik.
   gerçekten varken köşe modeli yanlış kadraj kurarsa kapı bunu göremez.
 - Kapının kendisi %21.5 negatif sızdırıyor (seçim kümesinde). Uydurmaların
   hepsini elemesi bu kesitte oldu; genel bir garanti değil.
+
+---
+
+## 22. ONNX: çerçeveden çıkmak, ve bölüm 19'un düzeltilmesi
+
+Faz 4 (TensorRT) ve Faz 5'in C++ boru hattı aynı önkoşula bağlı: modellerin
+çerçeveden bağımsız bir biçimde olması. TensorRT ONNX tüketiyor; C++'ta model
+çalıştırmanın makul yolu da ONNX Runtime.
+
+### Doğrulama işin yarısı
+
+Bir modeli başka bir çerçeveye taşımak sessizce bozulabilir: operatör
+farkları, varsayılan değerler, sayısal hassasiyet. Bozulma istisna olarak
+değil, biraz farklı sayılar olarak görünür ve boru hattının ucunda "model
+kötüleşti" diye yorumlanır.
+
+157 gerçek araç kırpması (rapor kümesi) üzerinde:
+
+| | maksimum fark |
+|---|---|
+| köşe koordinatları | 2.38e-07 → **0.0001 piksel** |
+| varlık puanı | 1.91e-06 |
+| tanıyıcı logitleri | 1.29e-05 |
+
+**Ve asıl sınav: çözümlenen plaka metni 157/157 kırpmada aynı.** Tolerans
+tartışmasına gerek kalmadı — 1e-5'lik bir logit farkı plakayı değiştirmiyorsa
+önemsizdir, değiştiriyorsa kritiktir; bakılan şey sonuç.
+
+Girdi olarak rastgele tensör değil rapor kümesinin kendisi kullanıldı.
+Rastgele girdide iki çerçeve kolayca uyuşur; önemli olan modelin gerçekte
+gördüğü dağılımda uyuşması.
+
+### Hız: ONNX tekdüze hızlı değil
+
+| model | PyTorch | ONNX Runtime | oran |
+|---|---|---|---|
+| köşe + varlık | 4.82 ms | 2.93 ms | **1.65x** |
+| tanıyıcı | 4.33 ms | 1.77 ms | **2.45x** |
+| **YOLOv8n** | **95.7 ms** | **134.2 ms** | **0.71x** |
+
+Projenin kendi yazdığı küçük modeller iki kattan fazla hızlanıyor; hazır ve
+zaten iyi optimize edilmiş YOLO **yavaşlıyor**. "ONNX hızlıdır" diye tek bir
+cümle kurulamıyor, model model bakmak gerekiyor. YOLO PyTorch yolunda
+bırakıldı.
+
+Araç başına toplam: **11.38 ms → 6.93 ms**.
+
+### Bölüm 19 yanlıştı: YOLO 640'ta ölçülmüştü
+
+Bu ölçüm sırasında bölüm 19'da bir hata çıktı. Kıyaslama betiği YOLO'yu
+`predict()` varsayılanıyla, yani **imgsz=640** ile ölçüyordu. Oysa boru hattı
+— `harvest_plates.py` ve `track_pipeline.py` — **imgsz=960** kullanıyor.
+Ölçülen şey çalıştırılan şey değildi.
+
+| | bölüm 19 | düzeltilmiş |
+|---|---|---|
+| YOLO | 57.65 ms | **97.84 ms** |
+| kare başına toplam | 75.6 ms | **115.4 ms** |
+| | 13.2 FPS | **8.7 FPS** |
+| YOLO'nun payı | %76 | **%85** |
+
+Yön aynı kalıyor ve sonuç cümlesi de: kayıt hızında gerçek zamanlı değil,
+işin gerektirdiği hızda yeterli. 8.7 FPS, bir aracın kadrajda kaldığı
+saniyede 9 işlenmiş kare demek ve bölüm 17'de beş kareli plakaların hepsi
+doğru okunmuştu. Ama sayının kendisi %35 yanlıştı ve düzeltildi.
+
+Betik artık `imgsz=960` kullanıyor ve neden kullandığı yazılı.
+
+### Darboğaz daha da netleşti
+
+YOLO artık kare maliyetinin **%85'i**. Projenin kendi üç modeli (köşe,
+tanıyıcı, çözümleyici) ONNX ile araç başına 6.93 ms. Hızlandırılacak yer
+hazır bir modelde ve orada da ONNX işe yaramıyor — kalan yol TensorRT ya da
+daha küçük bir dedektör.
+
+### Modeller depoda değil
+
+`onnx/` de `*.pt` gibi depo dışında. Tanıyıcı 204 gerçek plakayla ince
+ayarlandı; bir modelin ezberlediğini geri vermesi kırpmaları yayınlamaktan
+çok daha zayıf bir sızıntı, ama bu projenin plaka verisi konusundaki tutumu
+belli ve ağırlıkları tek taraflı yayınlamak o tutumla çelişirdi.
+
+Sentetik boru hattı hâlâ kimsenin verisine ihtiyaç duymadan çalışıyor;
+ağırlıkları üretmek için gereken her komut depoda.

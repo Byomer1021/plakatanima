@@ -135,8 +135,12 @@ def main(argv: list[str] | None = None) -> int:
         i = [0]
 
         def bir_kare():
+            # imgsz=960: harvest_plates.py ve track_pipeline.py bu cozunurlukte
+            # calisiyor. Varsayilan 640 ile olcmek YOLO'yu 96 ms yerine 58 ms
+            # gosteriyordu ve kare maliyetini oldugundan dusuk veriyordu -
+            # ilk olcumde tam bu oldu.
             r = model.predict(kareler[i[0] % len(kareler)], verbose=False,
-                              classes=[2, 3, 5, 7], device="cpu")
+                              imgsz=960, classes=[2, 3, 5, 7], device="cpu")
             kutular = r[0].boxes.xyxy.cpu().numpy() if len(r[0].boxes) else []
             hepsi[0] += len(kutular)
             # Asagi akisin maliyetini yalnizca GENISLIK FILTRESINI gecen
@@ -168,6 +172,20 @@ def main(argv: list[str] | None = None) -> int:
 
     kose_ms, _ = sure(kose_adim, args.tekrar)
 
+    # ONNX Runtime yolu da olculuyor: bolum 22'de projenin kendi modellerinde
+    # 2 kattan fazla hizlandirdigi, YOLO'da ise YAVASLATTIGI olculdu. Tek bir
+    # "ONNX hizlidir" cumlesi kurulamiyor, model model bakmak gerekiyor.
+    onnx_kose_ms = onnx_tan_ms = None
+    try:
+        import onnxruntime as ort
+        ok = ROOT / "onnx" / "kose.onnx"
+        if ok.is_file():
+            o1 = ort.InferenceSession(str(ok), providers=["CPUExecutionProvider"])
+            g1 = {"kirpma": x_kose.numpy()}
+            onnx_kose_ms, _ = sure(lambda: o1.run(None, g1), args.tekrar)
+    except ImportError:
+        pass
+
     # --- diklestirme ------------------------------------------------------
     kose4 = [[40, 60], [140, 62], [139, 86], [39, 84]]
 
@@ -188,6 +206,16 @@ def main(argv: list[str] | None = None) -> int:
             tm(x_tan).log_softmax(2)
 
     tan_ms, _ = sure(tan_adim, args.tekrar)
+
+    try:
+        import onnxruntime as ort
+        ot = ROOT / "onnx" / "taniyici.onnx"
+        if ot.is_file():
+            o2 = ort.InferenceSession(str(ot), providers=["CPUExecutionProvider"])
+            g2 = {"plaka": x_tan.numpy()}
+            onnx_tan_ms, _ = sure(lambda: o2.run(None, g2), args.tekrar)
+    except ImportError:
+        pass
 
     # --- C++ cozumleyici --------------------------------------------------
     gecici = ROOT / "runs" / "_kiyas"
@@ -233,8 +261,18 @@ def main(argv: list[str] | None = None) -> int:
           f"{coz1_ms:.1f} ms")
     print(f"  200 ornekten hesaplanan saf cozum suresi:        {coz_ms:.2f} ms")
 
+    if onnx_kose_ms and onnx_tan_ms:
+        print(f"\n  ONNX Runtime yolu:  kose {onnx_kose_ms:.2f} ms "
+              f"({kose_ms/onnx_kose_ms:.2f}x), "
+              f"taniyici {onnx_tan_ms:.2f} ms ({tan_ms/onnx_tan_ms:.2f}x)")
+        print(f"  YOLO ONNX'te YAVAS (0.71x, bolum 22); PyTorch'ta birakildi.")
+
     arac_toplam = kose_ms + dik_ms + tan_ms + coz_ms
+    onnx_arac = ((onnx_kose_ms + dik_ms + onnx_tan_ms + coz_ms)
+                 if onnx_kose_ms and onnx_tan_ms else None)
     print(f"\n  arac basina toplam (YOLO haric): {arac_toplam:>8.2f} ms")
+    if onnx_arac:
+        print(f"  ayni toplam, ONNX Runtime ile  : {onnx_arac:>8.2f} ms")
     if yolo_ms:
         kare_toplam = yolo_ms + n_arac * arac_toplam
         print(f"  kare basina toplam ({n_arac:.2f} arac): "
