@@ -31,7 +31,7 @@ düzeltildi ([docs/veri-olcumleri.md](docs/veri-olcumleri.md) bölüm 10-14).
 | 1 | Köşe regresyonu + kabul etme kapısı | ✅ uçtan uca ölçüldü |
 | 2 | Tanıma modeli, CTC | ✅ eğitildi + gerçek veriyle ince ayar |
 | 3 | Kısıtlı çözümleme (C++) + güven kalibrasyonu | ✅ |
-| 4 | TensorRT FP16/INT8 | ⏳ bulut GPU'da |
+| 4 | ONNX çıkarımı + doğrulama ✅ · TensorRT ⏳ bulut GPU'da | 🔶 |
 | 5 | Zamansal oylama + ByteTrack takibi ✅ · C++ boru hattı ⏳ | 🔶 |
 | 6 | Uç cihaz ölçümleri | ❌ kapsam dışı — donanım yok |
 
@@ -110,6 +110,7 @@ python scripts/train_presence.py                # "okunur plaka var mı" kapıs�
 python scripts/end_to_end.py                    # köşe hatasının bedeli
 python scripts/vote.py                          # zamansal oylama
 python scripts/track_pipeline.py                # takip + uctan uca
+python scripts/export_onnx.py                   # ONNX + doğrulama
 python scripts/benchmark.py                     # gecikme
 ```
 
