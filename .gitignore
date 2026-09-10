@@ -68,3 +68,5 @@ runs/_tani/
 runs/_izleme/
 onnx/
 *.onnx
+runs/_cpp/
+cpp/dis/

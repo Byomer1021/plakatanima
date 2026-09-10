@@ -1331,3 +1331,118 @@ belli ve ağırlıkları tek taraflı yayınlamak o tutumla çelişirdi.
 
 Sentetik boru hattı hâlâ kimsenin verisine ihtiyaç duymadan çalışıyor;
 ağırlıkları üretmek için gereken her komut depoda.
+
+---
+
+## 23. C++ boru hattı: Python yükü darboğaz değilmiş
+
+`cpp/pipeline.cpp` boru hattının projeye ait her adımını C++'ta çalıştırıyor:
+araç kırpması → küçültme → köşe modeli → varlık kapısı → perspektif düzeltme
+→ gri + küçültme → tanıyıcı → kısıtlı ışın araması → plaka + güven.
+
+PyTorch yok, OpenCV yok, Python yok. YOLO dışarıda: bölüm 22'de ONNX'te
+yavaşladığı ölçüldü ve zaten hazır bir model.
+
+### Ölçüm sorusu
+
+Bölüm 22'de araç başına 6.93 ms ölçülmüştü (Python + ONNX Runtime). Sorusu:
+**bunun ne kadarı gerçek hesap, ne kadarı Python yükü?** Aynı işi yapan C++
+belirgin şekilde altına inerse Python yükü gerçekti.
+
+### Bağımlılık nasıl kalmadı
+
+ONNX Runtime'ın C API'si tek bir dışa aktarılmış fonksiyon üzerinden çalışıyor
+(`OrtGetApiBase`), gerisi işlev işaretçisi tablosu. DLL çalışma anında
+açılıyor: import kütüphanesi gerekmiyor, C API olduğu için MinGW/MSVC ABI
+sorunu da yok.
+
+OpenCV yerine küçültme (alan ortalaması) ve perspektif düzeltme elle yazıldı.
+
+**Yakalanan tuzak:** `LoadLibrary("onnxruntime.dll")` yanlış sürümü yüklüyor.
+Windows'un kendi getirdiği bir `onnxruntime.dll` System32'de duruyor (1.17.1)
+ve arama sırası System32'yi PATH'ten önce koyuyor. Belirti yanıltıcı: *"API
+version 29 is not available"* — derleme hatası gibi görünüyor, oysa yanlış
+dosya. Çözüm açık yol (`PLAKA_ORT_DLL`) ve sürüm geri düşüşü.
+
+Dilbilgisi ve ışın araması `cpp/decoder.hpp`'ye taşındı; `decode.exe` ile
+`pipeline.exe` aynı kaynağı kullanıyor. İki ayrı yerde iki gramer tutmak
+ikisinin sessizce ayrışması demek olurdu — `tests/test_dilbilgisi.py` zaten
+C++ ile Python'un ayrışmasını sınamak için yazılmıştı.
+
+### Aynı şeyi okuyorlar mı
+
+| | |
+|---|---|
+| aynı plaka | **139/157 (%88.5)** |
+| aralarındaki ortalama düzenleme | 0.166 |
+| varlık puanı farkı (maks) | 5.25e-03 |
+| **gerçek etikete göre doğru** | **C++ 111, Python 113** |
+
+Piksel piksel aynı olamazlar: `cv2` dikleştirmede INTER_CUBIC kullanıyor,
+C++ tarafı iki doğrusal. Fark %11.5 kırpmada okumayı değiştiriyor ama
+doğruluğu değiştirmiyor — 111'e karşı 113, ve ayrışmalar ikisinin de
+genellikle yanıldığı zor kırpmalarda.
+
+### Güven, okumadan çok daha kırılgan
+
+Aynı plakayı okuyan 139 kırpmada güven farkı:
+
+| ortanca | %90 | maks | 0.05'ten büyük |
+|---|---|---|---|
+| 0.0785 | 0.7717 | 0.9810 | **85/139** |
+
+Sebebi tanımında: güven **marja** dayanıyor, marj ikinci en iyi *adaya*
+bağlı, ve minik bir piksel farkı ikinci adayı tamamen değiştirebiliyor.
+
+Pratik sonucu: **kalibrasyon eğrisi ön işlemeye bağlı.** Bölüm 15 ve 21'deki
+eşikler `cv2` ön işlemesiyle uyduruldu; C++ yolunda yeniden kalibre edilmeli.
+Bu, boru hattının parçalarının sanıldığı kadar bağımsız olmadığını gösteriyor.
+
+### Hız: soru cevaplandı, cevap "hayır"
+
+| | kırpma başına |
+|---|---|
+| Python + OpenCV + ONNX Runtime | **9.73 ms** |
+| C++ (pipeline.exe) | **15.61 ms** |
+
+C++ **daha yavaş**. Adım adım:
+
+| adım | ms |
+|---|---|
+| JPEG çözme | 3.09 |
+| küçültme (elle) | 3.42 |
+| köşe modeli (ONNX) | 2.44 |
+| dikleştirme (elle) | 2.17 |
+| tanıyıcı (ONNX) | 1.69 |
+| kısıtlı çözümleme | 2.66 |
+| **ONNX toplam** | **4.13** |
+| **elle yazılan işlem** | **5.58** |
+
+**ONNX çağrılarında C++ hafifçe hızlı** (4.13'e karşı Python'da ~4.70). Fark
+tamamen elle yazılan görüntü işlemlerinde: OpenCV aynı küçültmeyi **0.464
+ms**'de yapıyor, elle yazılan 3.42 ms — **7 kat**.
+
+Üç tur optimizasyon yapıldı ve ikisi işe yaramadı:
+
+| | küçültme |
+|---|---|
+| naif çift döngü | 6.17 ms |
+| ayrılabilir (yatay + dikey geçiş) | 4.02 ms |
+| dikey geçişte satır tamponu (önbellek) | 3.42 ms |
+| ağırlık tablosunu düzleştirme (tahsis) | 3.42 ms — **etkisiz** |
+
+Tahsis yükü hipotezi ölçülüp elendi. Kalan fark SIMD ve OpenCV'nin değeri tam
+orada: API'sinde değil, çekirdeklerinde.
+
+### Sonuç
+
+**Python yükü darboğaz değildi.** Bölüm 22'nin 6.93 ms'si büyük ölçüde gerçek
+hesaptı; düzenlemeyi C++'a taşımak, OpenCV'nin optimize edilmiş çekirdeklerini
+de getirmediğin sürece işi yavaşlatıyor.
+
+Bu, C++'ın işe yaramadığı anlamına gelmiyor — kısıtlı çözümleyici (bölüm 14)
+C++'ta yazıldı çünkü gramer üzerinde ışın araması Python'da hem çirkin hem
+yavaş olurdu, ve orada kazanç gerçekti. İşe yaramayan şey, iyi optimize
+edilmiş bir kütüphanenin yaptığı işi elle yeniden yazmak.
+
+Ölçülmeseydi bunun tersi de aynı derecede inandırıcı görünürdü.

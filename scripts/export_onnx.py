@@ -59,9 +59,16 @@ def sure(f, tekrar=30, isinma=3):
     return statistics.median(o)
 
 
-def cikar(model, ornek, yol: Path, girdi_ad, cikti_ad):
+def cikar(model, ornek, yol: Path, girdi_ad, cikti_ad, yigin_ekseni=None):
+    """yigin_ekseni: cikti adi -> yigin boyutunun KACINCI eksende oldugu.
+
+    Taniyicinin ciktisi (T, B, C) - yigin ekseni 1, 0 degil. Ilk surumde
+    hepsi 0 yazilmisti; islevsel olarak sorun cikarmadi ama meta veri
+    yanlisti ve C++ tarafi sekli oradan okuyor.
+    """
     import torch
     model.eval()
+    eksen = yigin_ekseni or {a: 0 for a in cikti_ad}
     with torch.no_grad():
         torch.onnx.export(
             model, ornek, str(yol),
@@ -69,7 +76,7 @@ def cikar(model, ornek, yol: Path, girdi_ad, cikti_ad):
             # Yigin boyutu degisken: boru hattinda arac sayisi kareden
             # kareye degisiyor, sabit yigin gereksiz dolgu demek olurdu.
             dynamic_axes={girdi_ad: {0: "yigin"},
-                          **{a: {0: "yigin"} for a in cikti_ad}},
+                          **{a: {eksen[a]: "yigin"} for a in cikti_ad}},
             opset_version=17)
     return yol.stat().st_size / 1e6
 
@@ -142,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         interpolation=cv2.INTER_AREA)) for y, _, _ in rapor])
 
     tan_yol = args.out / "taniyici.onnx"
-    mb = cikar(tm, torch.from_numpy(gri[:1]), tan_yol, "plaka", ["logit"])
+    mb = cikar(tm, torch.from_numpy(gri[:1]), tan_yol, "plaka", ["logit"],
+           yigin_ekseni={"logit": 1})   # cikti (T, B, C)
     print(f"taniyici.onnx {mb:>6.1f} MB")
 
     with torch.no_grad():
