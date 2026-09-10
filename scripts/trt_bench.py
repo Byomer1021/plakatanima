@@ -233,6 +233,55 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  cozumlenen plaka referansla ayni: {ayni}/{len(r_plaka)}\n",
               flush=True)
 
+    # --- YOLO -------------------------------------------------------------
+    # Ayri olculuyor cunku girdisi tam kare ve yigini 1'de sabit. Bolum 22'de
+    # kare maliyetinin %85'iydi ve simdiye kadar hizlandirma calismasinin
+    # disinda kaldi.
+    y_yol = p / "yolov8n.onnx"
+    if y_yol.is_file() and (p / "girdi_yolo.npy").is_file():
+        y_girdi = np.load(p / "girdi_yolo.npy")
+        y_ref = np.load(p / "referans_yolo.npy")
+        print(f"\n{'='*78}\nYOLO  (girdi {y_girdi.shape})\n{'='*78}")
+        y_sonuc = []
+        for ad, saglayici in liste:
+            try:
+                ys = ort.InferenceSession(str(y_yol), providers=saglayici)
+            except Exception as e:
+                print(f"--- {ad} --- kurulamadi: {e}")
+                continue
+            istenen = (saglayici[0][0] if isinstance(saglayici[0], tuple)
+                       else saglayici[0])
+            if istenen not in ys.get_providers():
+                print(f"--- {ad} --- {istenen} yuklenmedi, olculmedi")
+                continue
+            t0 = time.perf_counter()
+            cikti = np.concatenate([ys.run(None, {"images": y_girdi[i:i + 1]})[0]
+                                    for i in range(len(y_girdi))])
+            ilk = time.perf_counter() - t0
+            g1 = {"images": y_girdi[:1]}
+            ms = sure(lambda: ys.run(None, g1), tekrar=20, isinma=5)
+            d = float(np.abs(cikti - y_ref).max())
+            # Tespit sayisi: 84 satirin ilk 4'u kutu, kalani sinif puani.
+            def kutular(z, esik=0.25):
+                puan = z[:, 4:, :].max(axis=1)
+                return int((puan > esik).sum())
+            n_ref, n_bu = kutular(y_ref), kutular(cikti)
+            y_sonuc.append((ad, ms, d, n_ref, n_bu, ilk))
+            print(f"--- {ad:<16} {ms:>7.2f} ms   ham fark {d:.2e}   "
+                  f"tespit {n_bu}/{n_ref}   (ilk cagri {ilk:.1f} sn)",
+                  flush=True)
+        if y_sonuc:
+            taban_y = y_sonuc[0][1]
+            print(f"\n{'saglayici':<16}{'ms':>9}{'hizlanma':>10}"
+                  f"{'ham fark':>12}{'tespit':>10}")
+            print("-" * 57)
+            for ad, ms, d, nr, nb, _ in y_sonuc:
+                print(f"{ad:<16}{ms:>9.2f}{taban_y/ms:>9.2f}x{d:>12.2e}"
+                      f"{f'{nb}/{nr}':>10}")
+            print("\n'tespit' 0.25 esigi ustunde kalan cikti hucresi sayisi -")
+            print("NMS oncesi. Sayinin degismemesi FP16'nin tespitleri")
+            print("kaydirmadigini soyluyor; kesin kutu karsilastirmasi degil.")
+
     if not sonuc:
         print("\nHicbir saglayici olculemedi.")
         return 1
