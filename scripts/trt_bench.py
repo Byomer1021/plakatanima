@@ -33,9 +33,19 @@ FP16'ya inmek logitleri degistirir ve iki yerden vurabilir:
 Bu yuzden her saglayici icin cozumlenen plaka referansla karsilastiriliyor
 ve logit farkinin marja etkisi ayrica basiliyor.
 
+SURUM UYUMU
+-----------
+onnxruntime-gpu'nun PyPI surumu belli bir CUDA surumune bagli ve yanlis
+esleme SESSIZ dususe yol aciyor. 1.29 CUDA 13 istiyor; Kaggle'da CUDA 12
+var ve hem CUDA hem TensorRT saglayicisi yuklenemeden CPU'ya dusuyor.
+CUDA 12 icin surum sabitlenmeli.
+
 Kullanim (Kaggle defterinde):
-    !pip install -q onnxruntime-gpu
+    !pip install -q "onnxruntime-gpu==1.20.1"
     !python trt_bench.py --paket /kaggle/input/<veri-seti-adi>
+
+Betik istenen saglayicinin gercekten yuklendigini dogruluyor; yuklenmezse
+o satir tabloya girmiyor.
 """
 
 from __future__ import annotations
@@ -112,7 +122,25 @@ def main(argv: list[str] | None = None) -> int:
     r_plaka = (p / "referans_plaka.txt").read_text(encoding="utf-8").split()
 
     print(f"onnxruntime {ort.__version__}")
-    print(f"saglayicilar: {ort.get_available_providers()}")
+    print(f"listelenen saglayicilar: {ort.get_available_providers()}")
+    print("  (listelenmis olmasi CALISACAGI anlamina gelmiyor - .so diskte")
+    print("   varsa listeleniyor, yuklenip yuklenmedigi ayri mesele)")
+    try:
+        import subprocess
+        r = subprocess.run(["nvidia-smi",
+                            "--query-gpu=name,driver_version",
+                            "--format=csv,noheader"],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode == 0:
+            print(f"GPU: {r.stdout.strip()}")
+        r = subprocess.run(["nvcc", "--version"], capture_output=True,
+                           text=True, timeout=20)
+        if r.returncode == 0:
+            son = [l for l in r.stdout.splitlines() if "release" in l]
+            if son:
+                print(f"CUDA: {son[0].strip()}")
+    except Exception:
+        pass
     print(f"girdi: kose {kose_girdi.shape}, taniyici {tan_girdi.shape}\n")
 
     liste = saglayicilar(args.onbellek)
@@ -129,6 +157,29 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"  kurulamadi: {e}\n")
             continue
+
+        # ISTENEN saglayici GERCEKTEN yuklendi mi.
+        #
+        # Bu kontrol bir kere eksikti ve olcumu tamamen bozdu. ORT istenen
+        # saglayiciyi kuramazsa SESSIZCE zincirdeki bir sonrakine dusuyor;
+        # get_available_providers() ise .so dosyasi diskte oldugu icin onu
+        # yine de "var" diye listeliyor. Sonuc: dort satirin dordu de CPU
+        # olcen, ama TensorRT FP16 yazan bir tablo. Sayilar makul gorunuyordu
+        # (1.02x, 1.03x) ve "plaka ayni 157/157" bedavaydi - ayni yoldu.
+        #
+        # Artik gercekten calisan saglayici okunuyor ve istenen degilse
+        # satir tabloya GIRMIYOR.
+        istenen = (saglayici[0][0] if isinstance(saglayici[0], tuple)
+                   else saglayici[0])
+        calisan = ks.get_providers()
+        if istenen not in calisan:
+            print(f"  ISTENEN SAGLAYICI YUKLENMEDI: {istenen}")
+            print(f"  gercekte calisan: {calisan}")
+            print(f"  -> bu satir olculmedi, tabloya girmiyor\n")
+            continue
+        if calisan[0] != istenen:
+            print(f"  not: {istenen} yuklu ama zincirin basinda degil "
+                  f"({calisan})")
 
         # Motor derlemesi ilk cagrida oluyor; olcumden once bir kez.
         t0 = time.perf_counter()
@@ -165,7 +216,11 @@ def main(argv: list[str] | None = None) -> int:
               flush=True)
 
     if not sonuc:
+        print("\nHicbir saglayici olculemedi.")
         return 1
+    if len(sonuc) == 1:
+        print("\nUYARI: yalnizca bir saglayici calisti "
+              f"({sonuc[0][0]}). Karsilastirma yok.")
     taban = sonuc[0][1] + sonuc[0][2]
     print("=" * 78)
     print(f"{'saglayici':<16}{'kose':>8}{'taniyici':>10}{'toplam':>9}"
