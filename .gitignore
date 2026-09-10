@@ -70,3 +70,5 @@ onnx/
 *.onnx
 runs/_cpp/
 cpp/dis/
+trt_paket/
+runs/_trt/

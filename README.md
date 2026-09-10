@@ -111,6 +111,7 @@ python scripts/end_to_end.py                    # köşe hatasının bedeli
 python scripts/vote.py                          # zamansal oylama
 python scripts/track_pipeline.py                # takip + uctan uca
 python scripts/export_onnx.py                   # ONNX + doğrulama
+python scripts/trt_paket.py                     # TensorRT için bulut paketi
 python scripts/benchmark.py                     # gecikme
 ```
 
